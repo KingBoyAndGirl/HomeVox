@@ -6,11 +6,15 @@
 
 户型图 → AI 解析 2D 结构 → AI 生成 3D 白模 → 体素编辑器自定义 → 人工精调 → 导出效果图 + 施工资料
 
-## 技术栈（规划中）
+## 技术栈
 
-- **前端**：React + TypeScript + Three.js（3D 渲染 + 体素引擎）
-- **后端**：Python FastAPI / Node.js（TBD）
-- **AI**：视觉模型（户型图解析）+ LLM（设计助手）
+| 层 | 选型 |
+|----|------|
+| 后端 | Rust + Axum |
+| 前端 | React + TypeScript + React Three Fiber |
+| 数据库 | PostgreSQL |
+| 存储 | S3（MinIO 本地） |
+| AI | OpenAI 兼容 API 直调 |
 
 ## 开发状态
 
@@ -18,10 +22,12 @@
 
 ## 许可
 
-本软件采用自定义许可协议，详见 [LICENSE](./LICENSE)。
+本项目采用 **GNU Affero General Public License v3.0 (AGPL-3.0)**。
 
-- 非商业用途：自由使用、修改、分发
-- 商业用途：需获得作者王.W 的明确书面授权
+- ✅ 自由使用、修改、分发
+- ✅ 个人项目、学习研究、商业使用
+- ⚠️ **网络服务提供者必须公开修改后的源代码**
+- 💡 如需闭源商用授权，请联系作者
 
 ## 作者
 
