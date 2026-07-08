@@ -27,7 +27,13 @@ HomeVox 采用混合技术路线：**Go 管业务 API，Rust 管体素/几何核
 
 ## 开发状态
 
-🚧 产品方案设计中 → 即将启动 Phase 0 技术验证
+🚧 Phase 0 技术验证收口中
+
+- ✅ 技术栈已切换为 React + R3F / Go API / Rust + WASM / PostgreSQL / S3-MinIO
+- ✅ Go 后端最小 API Server 已落地，默认监听 `0.0.0.0:18088`
+- ✅ Rust/WASM 几何核心已加入 Marching Cubes 验证代码
+- ✅ 前端脚手架可构建
+- ⏳ 下一步进入 MVP 核心管线：户型图上传、AI 解析、2D/3D 白模与基础导出
 
 ## 许可
 

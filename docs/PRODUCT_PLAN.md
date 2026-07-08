@@ -2,7 +2,7 @@
 
 > **方案日期**：2025-07-06
 > **作者**：王.W + Hermes Agent（协作设计）
-> **状态**：技术栈已定，设计决策明确
+> **状态**：技术栈已定，Phase 0 技术验证收口中
 
 ---
 
@@ -389,16 +389,12 @@ HomeVox/
 │   │   └── export/         # 导出模块
 │   └── ...
 ├── backend/                # Go API Server
-│   ├── src/
-│   │   ├── api/            # REST 路由
-│   │   ├── models/         # 数据模型
-│   │   ├── services/       # 业务逻辑
-│   │   │   ├── floorplan/  # 户型图解析
-│   │   │   ├── voxel/      # 体素处理（MC 算法）
-│   │   │   ├── ai/         # AI API 调用
-│   │   │   └── export/     # 文档生成
-│   │   └── db/             # PostgreSQL 访问层
-│   └── ...
+│   ├── cmd/server/         # 服务入口
+│   ├── internal/api/       # REST 路由
+│   ├── internal/config/    # 配置加载
+│   ├── internal/ai/        # AI API 调用
+│   ├── internal/db/        # PostgreSQL 访问层
+│   └── internal/storage/   # S3 / MinIO 存储边界
 ├── wasm/                   # Rust→WASM 体素处理模块
 │   └── src/
 │       └── lib.rs          # 体素操作、MC 表面提取
@@ -414,7 +410,7 @@ HomeVox/
 |------|------|----------|
 | 户型图 AI 识别准确率不达标 | 用户体验差 | Phase 0 先验证，提供手动校正工具 |
 | Marching Cubes 实时性能 | 编辑时卡顿 | WASM 加速 + Web Worker + LOD |
-| Rust 开发周期长 | 影响 MVP 交付 | AI Agent 辅助编码弥补人力 |
+| Rust/WASM 几何核心开发周期长 | 影响 MVP 交付 | Rust 只保留在体素/几何边界，业务 API 由 Go 承担，并用 AI Agent 辅助编码 |
 | 缺少品牌 3D 模型数据 | 组件库内容少 | 先用通用模型，开放用户导入 |
 | 体素编辑器学习曲线 | 用户劝退 | AI 辅助生成 + 拖拽半自动模式 |
 
