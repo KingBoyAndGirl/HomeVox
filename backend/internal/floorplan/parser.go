@@ -57,7 +57,23 @@ func (p *Parser) Parse(ctx context.Context, imageDataURL string) (ParseResult, e
 	if result.Metadata.Source == "" {
 		result.Metadata.Source = "ai"
 	}
-	return result, nil
+	return normalizeParseResult(result), nil
+}
+
+func normalizeParseResult(result ParseResult) ParseResult {
+	if result.Rooms == nil {
+		result.Rooms = []Room{}
+	}
+	if result.Walls == nil {
+		result.Walls = []Segment{}
+	}
+	if result.Doors == nil {
+		result.Doors = []Opening{}
+	}
+	if result.Windows == nil {
+		result.Windows = []Opening{}
+	}
+	return result
 }
 
 func firstChoiceContent(response map[string]any) (string, error) {
