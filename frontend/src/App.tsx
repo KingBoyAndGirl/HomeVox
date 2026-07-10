@@ -283,13 +283,23 @@ function toCanvasPoint(
   viewport: Viewport,
 ): ScenePoint {
   const rect = svg.getBoundingClientRect()
-  if (rect.width === 0 || rect.height === 0) {
+  if (rect.width === 0 || rect.height === 0 || viewport.width <= 0 || viewport.height <= 0) {
+    return { x: Number.NaN, y: Number.NaN }
+  }
+
+  // Match the outer SVG's preserveAspectRatio="xMinYMin meet" transform exactly.
+  const scale = Math.min(rect.width / viewport.width, rect.height / viewport.height)
+  const renderedWidth = viewport.width * scale
+  const renderedHeight = viewport.height * scale
+  const x = event.clientX - rect.left
+  const y = event.clientY - rect.top
+  if (x < 0 || y < 0 || x > renderedWidth || y > renderedHeight) {
     return { x: Number.NaN, y: Number.NaN }
   }
 
   return {
-    x: viewport.minX + ((event.clientX - rect.left) / rect.width) * viewport.width,
-    y: viewport.minY + ((event.clientY - rect.top) / rect.height) * viewport.height,
+    x: viewport.minX + x / scale,
+    y: viewport.minY + y / scale,
   }
 }
 
@@ -416,9 +426,22 @@ export default function App() {
         method: 'POST',
         body: formData,
       })
-      const body = await response.json()
+      const responseText = await response.text()
+      let body: unknown = null
+      try {
+        body = responseText ? JSON.parse(responseText) : null
+      } catch {
+        // Reverse proxies and upstream failures can return non-JSON error pages.
+      }
       if (!response.ok) {
-        throw new Error(body.error ?? `解析失败：HTTP ${response.status}`)
+        const message =
+          body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
+            ? body.error
+            : responseText.trim() || response.statusText || '未知错误'
+        throw new Error(`解析失败：HTTP ${response.status} ${message}`)
+      }
+      if (!body || typeof body !== 'object') {
+        throw new Error('解析失败：服务返回了无效的 JSON 响应')
       }
       setParseResponse(body as ParseResponse)
       setStatus('ready')
@@ -498,9 +521,7 @@ export default function App() {
 
     if (draggedEndpoint) {
       const moveResult = moveEndpoint(wallEditor, draggedEndpoint, cursor)
-      if (moveResult.changed) {
-        setDragPreviewWalls(moveResult.walls)
-      }
+      setDragPreviewWalls(moveResult.changed ? moveResult.walls : null)
       return
     }
 
@@ -535,7 +556,14 @@ export default function App() {
   }
 
   function handleCanvasPointerCancel(event: PointerEvent<SVGSVGElement>) {
-    commitDrag(event.pointerId)
+    if (draggedEndpoint) {
+      setDraggedEndpoint(null)
+      setDragPreviewWalls(null)
+    }
+    const svg = editorRef.current
+    if (svg?.hasPointerCapture(event.pointerId)) {
+      svg.releasePointerCapture(event.pointerId)
+    }
   }
 
   return (
@@ -701,7 +729,7 @@ export default function App() {
                 y={viewport.minY}
                 width={viewport.width}
                 height={viewport.height}
-                preserveAspectRatio="xMidYMid meet"
+                preserveAspectRatio="xMinYMin meet"
                 opacity="0.42"
               />
             )}

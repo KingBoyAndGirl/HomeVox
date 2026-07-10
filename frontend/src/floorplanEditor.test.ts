@@ -63,6 +63,46 @@ describe('wall edit core', () => {
     expect(moved.walls[2].x1).toBe(30)
   })
 
+  it('preserves proven shared topology after a committed move', () => {
+    const initial = createWallEditorState([
+      { x1: 0, y1: 0, x2: 10, y2: 0 },
+      { x1: 10, y1: 0, x2: 20, y2: 0 },
+    ])
+    const firstMove = moveEndpoint(initial, { wallIndex: 0, endpoint: 'end' }, { x: 12, y: -1 })
+    const committed = pushWallSnapshot(initial, firstMove.walls)
+
+    const secondMove = moveEndpoint(committed, { wallIndex: 0, endpoint: 'end' }, { x: 14, y: -2 })
+
+    expect(secondMove.walls[0]).toEqual({ x1: 0, y1: 0, x2: 14, y2: -2 })
+    expect(secondMove.walls[1]).toEqual({ x1: 14, y1: -2, x2: 20, y2: 0 })
+  })
+
+  it('does not treat merely nearby endpoints as shared topology', () => {
+    const state = createWallEditorState([
+      { x1: 0, y1: 0, x2: 10, y2: 0 },
+      { x1: 10.5, y1: 0, x2: 20, y2: 0 },
+    ], 6)
+
+    const moved = moveEndpoint(state, { wallIndex: 0, endpoint: 'end' }, { x: 12, y: -1 })
+
+    expect(moved.changed).toBe(true)
+    expect(moved.walls[0]).toEqual({ x1: 0, y1: 0, x2: 12, y2: -1 })
+    expect(moved.walls[1]).toEqual({ x1: 10.5, y1: 0, x2: 20, y2: 0 })
+  })
+
+  it('ignores stale endpoint references without throwing', () => {
+    const state = createWallEditorState([{ x1: 0, y1: 0, x2: 10, y2: 0 }])
+
+    expect(moveEndpoint(state, { wallIndex: -1, endpoint: 'start' }, { x: 1, y: 1 })).toMatchObject({
+      changed: false,
+      walls: state.walls,
+    })
+    expect(moveEndpoint(state, { wallIndex: 1, endpoint: 'end' }, { x: 1, y: 1 })).toMatchObject({
+      changed: false,
+      walls: state.walls,
+    })
+  })
+
   it('supports undo and redo, and redo branch is truncated on new commit', () => {
     const initial = createWallEditorState([
       {
