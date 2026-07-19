@@ -8,6 +8,7 @@ import (
 
 type Config struct {
 	ListenAddr  string
+	FrontendDir string
 	DatabaseURL string
 	S3Endpoint  string
 	S3Bucket    string
@@ -22,6 +23,7 @@ func Load() Config {
 	_ = godotenv.Load()
 	return Config{
 		ListenAddr:  fixedListenAddr(),
+		FrontendDir: os.Getenv("HOMEVOX_FRONTEND_DIR"),
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		S3Endpoint:  os.Getenv("S3_ENDPOINT"),
 		S3Bucket:    os.Getenv("S3_BUCKET"),

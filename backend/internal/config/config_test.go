@@ -31,3 +31,23 @@ func TestLoadReadsAIAPIKey(t *testing.T) {
 		t.Fatal("AIAPIKey was not loaded from AI_API_KEY")
 	}
 }
+
+func TestLoadRequiresExplicitFrontendDirectory(t *testing.T) {
+	t.Setenv("HOMEVOX_FRONTEND_DIR", "")
+
+	cfg := Load()
+
+	if cfg.FrontendDir != "" {
+		t.Fatalf("FrontendDir = %q, want empty until explicitly configured", cfg.FrontendDir)
+	}
+}
+
+func TestLoadUsesConfiguredFrontendDirectory(t *testing.T) {
+	t.Setenv("HOMEVOX_FRONTEND_DIR", "/srv/homevox/frontend")
+
+	cfg := Load()
+
+	if cfg.FrontendDir != "/srv/homevox/frontend" {
+		t.Fatalf("FrontendDir = %q, want configured directory", cfg.FrontendDir)
+	}
+}
