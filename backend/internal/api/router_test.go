@@ -34,7 +34,7 @@ func TestRouterAppliesCorsHeaders(t *testing.T) {
 	}
 }
 
-func TestConfigDoesNotReportDatabaseReadyFromURLAlone(t *testing.T) {
+func TestConfigReportsUnavailableDatabaseWhenConfiguredConnectionFails(t *testing.T) {
 	router := NewRouter(config.Config{DatabaseURL: "postgres://example"})
 	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
 	w := httptest.NewRecorder()
@@ -48,7 +48,7 @@ func TestConfigDoesNotReportDatabaseReadyFromURLAlone(t *testing.T) {
 	if body["databaseConfigured"] != false {
 		t.Fatalf("databaseConfigured = %v, want false until connection checks exist", body["databaseConfigured"])
 	}
-	if body["databaseStatus"] != "phase0_placeholder_unverified" {
+	if body["databaseStatus"] != "unavailable" {
 		t.Fatalf("databaseStatus = %v", body["databaseStatus"])
 	}
 }

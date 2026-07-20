@@ -1,5 +1,234 @@
 package db
 
-// PostgreSQL boundary. Phase 0 keeps schema work out until core project models
-// are finalized by the product plan and first API slice.
-type Repository interface{}
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+var (
+	ErrProjectNotFound = errors.New("project not found")
+)
+
+type RevisionConflictError struct {
+	ID       string
+	Expected int
+	Current  int
+}
+
+func (e *RevisionConflictError) Error() string {
+	return fmt.Sprintf("project %s expected revision %d, current revision %d", e.ID, e.Expected, e.Current)
+}
+
+type Project struct {
+	ID                     string
+	Name                   string
+	SourceImageKey         string
+	SourceImageContentType string
+	SourceImageSize        int64
+	Document               json.RawMessage
+	Revision               int
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+}
+
+type ProjectSummary struct {
+	ID        string
+	Name      string
+	Revision  int
+	UpdatedAt time.Time
+	CreatedAt time.Time
+}
+
+type ProjectRepository interface {
+	InitializeSchema(ctx context.Context) error
+	Create(ctx context.Context, id, name, sourceImageKey, sourceImageContentType string, sourceImageSize int64, document json.RawMessage) (Project, error)
+	Get(ctx context.Context, id string) (Project, error)
+	Update(ctx context.Context, id string, expectedRevision int, name string, document json.RawMessage) (Project, error)
+	List(ctx context.Context, limit int) ([]ProjectSummary, error)
+}
+
+type PostgresRepository struct {
+	pool *pgxpool.Pool
+}
+
+func NewPostgresRepository(ctx context.Context, databaseURL string) (*PostgresRepository, error) {
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("connect postgres: %w", err)
+	}
+
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("ping postgres: %w", err)
+	}
+
+	return &PostgresRepository{pool: pool}, nil
+}
+
+func (r *PostgresRepository) Close() {
+	r.pool.Close()
+}
+
+func (r *PostgresRepository) InitializeSchema(ctx context.Context) error {
+	const schemaSQL = `
+CREATE TABLE IF NOT EXISTS projects (
+    id uuid PRIMARY KEY,
+    name text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 120),
+    source_image_key text NOT NULL UNIQUE,
+    source_image_content_type text NOT NULL,
+    source_image_size bigint NOT NULL CHECK (source_image_size > 0),
+    document jsonb NOT NULL,
+    revision integer NOT NULL DEFAULT 1,
+    created_at timestamptz NOT NULL DEFAULT timezone('UTC', now()),
+    updated_at timestamptz NOT NULL DEFAULT timezone('UTC', now())
+);
+
+CREATE INDEX IF NOT EXISTS projects_updated_at_idx ON projects (updated_at DESC);
+`
+	if _, err := r.pool.Exec(ctx, schemaSQL); err != nil {
+		return err
+	}
+
+	if _, err := r.pool.Exec(ctx, `CREATE OR REPLACE FUNCTION project_touch_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+   NEW.updated_at = timezone('UTC', now());
+   RETURN NEW;
+END;
+$$;`); err != nil {
+		return err
+	}
+
+	if _, err := r.pool.Exec(ctx, `DROP TRIGGER IF EXISTS set_projects_updated_at ON projects;`); err != nil {
+		return err
+	}
+
+	_, err := r.pool.Exec(ctx, `CREATE TRIGGER set_projects_updated_at
+BEFORE UPDATE ON projects
+FOR EACH ROW
+EXECUTE PROCEDURE project_touch_updated_at();`)
+	return err
+}
+
+func (r *PostgresRepository) Create(ctx context.Context, id, name, sourceImageKey, sourceImageContentType string, sourceImageSize int64, document json.RawMessage) (Project, error) {
+	var created Project
+	row := r.pool.QueryRow(ctx, `
+INSERT INTO projects (id, name, source_image_key, source_image_content_type, source_image_size, document)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, name, source_image_key, source_image_content_type, source_image_size, revision, created_at, updated_at;`,
+		id,
+		name,
+		sourceImageKey,
+		sourceImageContentType,
+		sourceImageSize,
+		document,
+	)
+	err := row.Scan(&created.ID, &created.Name, &created.SourceImageKey, &created.SourceImageContentType, &created.SourceImageSize, &created.Revision, &created.CreatedAt, &created.UpdatedAt)
+	if err != nil {
+		return Project{}, fmt.Errorf("insert project: %w", err)
+	}
+	created.Document = projectJSONCopy(document)
+	return normalizeProjectTimes(created), nil
+}
+
+func (r *PostgresRepository) Get(ctx context.Context, id string) (Project, error) {
+	var project Project
+	row := r.pool.QueryRow(ctx, `
+SELECT id, name, source_image_key, source_image_content_type, source_image_size, revision, document, created_at, updated_at
+FROM projects
+WHERE id = $1;
+`, id)
+	err := row.Scan(&project.ID, &project.Name, &project.SourceImageKey, &project.SourceImageContentType, &project.SourceImageSize, &project.Revision, &project.Document, &project.CreatedAt, &project.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Project{}, ErrProjectNotFound
+		}
+		return Project{}, fmt.Errorf("select project: %w", err)
+	}
+	return normalizeProjectTimes(project), nil
+}
+
+func (r *PostgresRepository) List(ctx context.Context, limit int) ([]ProjectSummary, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+
+	rows, err := r.pool.Query(ctx, `
+SELECT id, name, revision, created_at, updated_at
+FROM projects
+ORDER BY updated_at DESC, id DESC
+LIMIT $1;
+`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list projects: %w", err)
+	}
+	defer rows.Close()
+
+	var projects []ProjectSummary
+	for rows.Next() {
+		var project ProjectSummary
+		err = rows.Scan(&project.ID, &project.Name, &project.Revision, &project.CreatedAt, &project.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("scan project summary: %w", err)
+		}
+		projects = append(projects, project)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("scan project summaries: %w", err)
+	}
+	for i := range projects {
+		projects[i].CreatedAt = projects[i].CreatedAt.UTC()
+		projects[i].UpdatedAt = projects[i].UpdatedAt.UTC()
+	}
+	return projects, nil
+}
+
+func (r *PostgresRepository) Update(ctx context.Context, id string, expectedRevision int, name string, document json.RawMessage) (Project, error) {
+	var updated Project
+	row := r.pool.QueryRow(ctx, `
+UPDATE projects
+SET name = $2,
+    document = $3,
+    revision = revision + 1
+WHERE id = $1 AND revision = $4
+RETURNING id, name, source_image_key, source_image_content_type, source_image_size, revision, created_at, updated_at;`,
+		id,
+		name,
+		document,
+		expectedRevision,
+	)
+	err := row.Scan(&updated.ID, &updated.Name, &updated.SourceImageKey, &updated.SourceImageContentType, &updated.SourceImageSize, &updated.Revision, &updated.CreatedAt, &updated.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			var current int
+			errFound := r.pool.QueryRow(ctx, `SELECT revision FROM projects WHERE id = $1;`, id).Scan(&current)
+			if errFound == nil {
+				return Project{}, &RevisionConflictError{ID: id, Expected: expectedRevision, Current: current}
+			}
+			if errors.Is(errFound, pgx.ErrNoRows) {
+				return Project{}, ErrProjectNotFound
+			}
+			return Project{}, fmt.Errorf("select revision: %w", errFound)
+		}
+		return Project{}, fmt.Errorf("update project: %w", err)
+	}
+	updated.Document = projectJSONCopy(document)
+	return normalizeProjectTimes(updated), nil
+}
+
+func normalizeProjectTimes(project Project) Project {
+	project.CreatedAt = project.CreatedAt.UTC()
+	project.UpdatedAt = project.UpdatedAt.UTC()
+	return project
+}
+
+func projectJSONCopy(document json.RawMessage) json.RawMessage {
+	copied := make(json.RawMessage, len(document))
+	copy(copied, document)
+	return copied
+}

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -25,10 +26,25 @@ type healthResponse struct {
 }
 
 func NewRouter(cfg config.Config, frontendDirs ...string) *gin.Engine {
+	router, _ := NewRouterWithCleanup(cfg, frontendDirs...)
+	return router
+}
+
+// NewRouterWithCleanup exposes the persistence-resource cleanup required by
+// the long-running server while keeping the lightweight test constructor.
+func NewRouterWithCleanup(cfg config.Config, frontendDirs ...string) (*gin.Engine, func()) {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery(), corsMiddleware())
 	parser := floorplan.NewParser(ai.NewClientFromConfig(cfg))
+	deps := newProjectDependencies(context.Background(), databaseConfig{
+		DatabaseURL: cfg.DatabaseURL,
+		S3Endpoint:  cfg.S3Endpoint,
+		S3Bucket:    cfg.S3Bucket,
+		S3AccessKey: cfg.S3AccessKey,
+		S3SecretKey: cfg.S3SecretKey,
+	})
+	databaseStatus, s3Status, databaseConfigured, s3Configured := projectStatusesFromDependencies(deps)
 
 	router.GET("/api/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, healthResponse{
@@ -42,12 +58,14 @@ func NewRouter(cfg config.Config, frontendDirs ...string) *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{
 			"aiModel":            cfg.AIModel,
 			"aiConfigured":       cfg.AIAPIKey != "" && cfg.AIBaseURL != "" && cfg.AIModel != "",
-			"s3Configured":       cfg.S3Endpoint != "" && cfg.S3Bucket != "" && cfg.S3AccessKey != "" && cfg.S3SecretKey != "",
-			"s3Status":           storageStatus(cfg),
-			"databaseConfigured": false,
-			"databaseStatus":     databaseStatus(cfg),
+			"s3Configured":       s3Configured,
+			"s3Status":           s3Status,
+			"databaseConfigured": databaseConfigured,
+			"databaseStatus":     databaseStatus,
 		})
 	})
+
+	registerProjectRoutes(router, deps)
 
 	router.POST("/api/floorplans/parse", func(c *gin.Context) {
 		file, header, err := c.Request.FormFile("floorplan")
@@ -89,11 +107,11 @@ func NewRouter(cfg config.Config, frontendDirs ...string) *gin.Engine {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"filename":    header.Filename,
-			"contentType": contentType,
-			"size":        len(data),
-			"result":      result,
+		c.JSON(http.StatusOK, floorplan.ParseResponse{
+			Filename:    header.Filename,
+			ContentType: contentType,
+			Size:        len(data),
+			Result:      result,
 		})
 	})
 
@@ -101,7 +119,7 @@ func NewRouter(cfg config.Config, frontendDirs ...string) *gin.Engine {
 		registerFrontend(router, frontendDirs[0])
 	}
 
-	return router
+	return router, deps.Close
 }
 
 func registerFrontend(router *gin.Engine, frontendDir string) {
@@ -137,23 +155,6 @@ func registerFrontend(router *gin.Engine, frontendDir string) {
 		}
 		c.File(indexPath)
 	})
-}
-
-func storageStatus(cfg config.Config) string {
-	if cfg.S3Endpoint == "" && cfg.S3Bucket == "" && cfg.S3AccessKey == "" && cfg.S3SecretKey == "" {
-		return "not_configured"
-	}
-	if cfg.S3Endpoint == "" || cfg.S3Bucket == "" || cfg.S3AccessKey == "" || cfg.S3SecretKey == "" {
-		return "incomplete_config"
-	}
-	return "configured_unverified"
-}
-
-func databaseStatus(cfg config.Config) string {
-	if cfg.DatabaseURL == "" {
-		return "not_configured"
-	}
-	return "phase0_placeholder_unverified"
 }
 
 func corsMiddleware() gin.HandlerFunc {
