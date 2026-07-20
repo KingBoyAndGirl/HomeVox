@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/KingBoyAndGirl/HomeVox/backend/internal/ai"
@@ -21,7 +24,7 @@ type healthResponse struct {
 	Time    string `json:"time"`
 }
 
-func NewRouter(cfg config.Config) *gin.Engine {
+func NewRouter(cfg config.Config, frontendDirs ...string) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery(), corsMiddleware())
@@ -94,7 +97,46 @@ func NewRouter(cfg config.Config) *gin.Engine {
 		})
 	})
 
+	if len(frontendDirs) > 0 && frontendDirs[0] != "" {
+		registerFrontend(router, frontendDirs[0])
+	}
+
 	return router
+}
+
+func registerFrontend(router *gin.Engine, frontendDir string) {
+	indexPath := filepath.Join(frontendDir, "index.html")
+
+	router.NoRoute(func(c *gin.Context) {
+		requestPath := c.Request.URL.Path
+		if requestPath == "/api" || strings.HasPrefix(requestPath, "/api/") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "API route not found"})
+			return
+		}
+		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+			c.Status(http.StatusNotFound)
+			return
+		}
+
+		cleanPath := filepath.Clean("/" + requestPath)
+		if cleanPath == "/" {
+			c.File(indexPath)
+			return
+		}
+
+		candidate := filepath.Join(frontendDir, filepath.FromSlash(strings.TrimPrefix(cleanPath, "/")))
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() {
+			c.File(candidate)
+			return
+		}
+
+		if strings.HasPrefix(cleanPath, "/assets/") || strings.Contains(filepath.Base(cleanPath), ".") {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		c.File(indexPath)
+	})
 }
 
 func storageStatus(cfg config.Config) string {

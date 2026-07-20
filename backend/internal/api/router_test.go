@@ -6,6 +6,9 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/KingBoyAndGirl/HomeVox/backend/internal/config"
@@ -114,5 +117,56 @@ func TestParseFloorplanReportsMissingAIConfig(t *testing.T) {
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("parse status = %d, want %d; body=%s", w.Code, http.StatusServiceUnavailable, w.Body.String())
+	}
+}
+
+type routerTestCase struct {
+	name        string
+	method      string
+	path        string
+	wantStatus  int
+	wantBody    string
+	contentType string
+}
+
+func TestRouterServesFrontendAndSPAFallback(t *testing.T) {
+	frontendDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(frontendDir, "assets"), 0o755); err != nil {
+		t.Fatalf("create assets dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(frontendDir, "index.html"), []byte("<main>HomeVox shell</main>"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(frontendDir, "assets", "app.js"), []byte("window.homevox = true"), 0o644); err != nil {
+		t.Fatalf("write asset: %v", err)
+	}
+
+	router := NewRouter(config.Config{}, frontendDir)
+
+	for _, tc := range []routerTestCase{
+		{name: "root", method: http.MethodGet, path: "/", wantStatus: http.StatusOK, wantBody: "HomeVox shell", contentType: "text/html"},
+		{name: "asset", method: http.MethodGet, path: "/assets/app.js", wantStatus: http.StatusOK, wantBody: "window.homevox = true", contentType: "text/javascript"},
+		{name: "client route", method: http.MethodGet, path: "/projects/demo", wantStatus: http.StatusOK, wantBody: "HomeVox shell", contentType: "text/html"},
+		{name: "post client route", method: http.MethodPost, path: "/projects/demo", wantStatus: http.StatusNotFound},
+		{name: "missing asset", method: http.MethodGet, path: "/assets/missing.js", wantStatus: http.StatusNotFound},
+		{name: "extensionless missing asset", method: http.MethodGet, path: "/assets/missing", wantStatus: http.StatusNotFound},
+		{name: "api namespace root", method: http.MethodGet, path: "/api", wantStatus: http.StatusNotFound, contentType: "application/json"},
+		{name: "unknown api", method: http.MethodGet, path: "/api/missing", wantStatus: http.StatusNotFound, contentType: "application/json"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			if w.Code != tc.wantStatus {
+				t.Fatalf("GET %s status = %d, want %d; body=%s", tc.path, w.Code, tc.wantStatus, w.Body.String())
+			}
+			if tc.wantBody != "" && !strings.Contains(w.Body.String(), tc.wantBody) {
+				t.Fatalf("GET %s body = %q, want substring %q", tc.path, w.Body.String(), tc.wantBody)
+			}
+			if tc.contentType != "" && !strings.Contains(w.Header().Get("Content-Type"), tc.contentType) {
+				t.Fatalf("GET %s Content-Type = %q, want %q", tc.path, w.Header().Get("Content-Type"), tc.contentType)
+			}
+		})
 	}
 }

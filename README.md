@@ -27,13 +27,14 @@ HomeVox 采用混合技术路线：**Go 管业务 API，Rust 管体素/几何核
 
 ## 开发状态
 
-🚧 Phase 0 技术验证收口中
+🚧 Phase 1 MVP 核心管线开发中
 
-- ✅ 技术栈已切换为 React + R3F / Go API / Rust + WASM / PostgreSQL / S3-MinIO
-- ✅ Go 后端最小 API Server 已落地，默认监听 `0.0.0.0:18088`
-- ✅ Rust/WASM 几何核心已加入 Marching Cubes 验证代码
-- ✅ 前端脚手架可构建
-- ⏳ 下一步进入 MVP 核心管线：户型图上传、AI 解析、2D/3D 白模与基础导出
+- ✅ Go 单进程固定监听 `0.0.0.0:18088`，同源提供 `/api/*` 与 `frontend/dist`，并支持 SPA fallback
+- ✅ 户型图上传与 OpenAI-compatible AI 解析接口已落地；正向解析运行需要配置 `AI_API_KEY`、`AI_BASE_URL`、`AI_MODEL`
+- ✅ 2D 户型校正编辑器支持墙体选择、共享端点拖拽、Undo/Redo 与底图显隐
+- ✅ 当前 3D 视图仅展示 room bounds 基础体块，不等同于真实墙体白模
+- ✅ Rust/WASM 几何核心已加入 Marching Cubes 功能验证
+- ⏳ 下一步：完成真实 AI 样本验收、3D 墙体白模、基础 2D/3D 导出
 
 ## 许可
 
@@ -46,6 +47,6 @@ HomeVox 采用混合技术路线：**Go 管业务 API，Rust 管体素/几何核
 
 ## 作者
 
-王.W ([@KingBoyAndGirl](https://github.com/KingBoyAndGirl))
+王.W ([@wtj-0527](https://github.com/wtj-0527))
 
 维护者：产研团队（`hermes` / `codex` / `claude`，邮箱 `wangw9475@agent.qq.com`）
