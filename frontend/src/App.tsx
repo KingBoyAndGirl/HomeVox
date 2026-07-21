@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { Canvas, type RootState } from '@react-three/fiber'
 import { Grid, OrbitControls } from '@react-three/drei'
+import type { BufferGeometry } from 'three'
 import {
   type EndpointRef,
   type WallSegment,
@@ -23,6 +24,9 @@ import {
   type Viewport,
 } from './floorplanUi'
 import { buildWallShellModel, type WallShellModel } from './wallShell'
+import { buildWallVoxelModel, type WallVoxelModel } from './wallVoxel'
+import { runMarchingCubes, type MarchingCubesMetrics, type WasmFallbackReason } from './wasmMarchingCubes'
+import { buildWasmWallGeometry, disposeWasmWallGeometry } from './wasmGeometry'
 import {
   buildExportFileName,
   downloadBlobAsPng,
@@ -155,9 +159,11 @@ function chooseViewport(result: ParseResult | null, fallbackImageSize: { width: 
 
 type FloorplanSceneProps = {
   model: WallShellModel
+  wasmGeometry: BufferGeometry | null
+  wasmActive: boolean
 }
 
-function Scene({ model }: FloorplanSceneProps) {
+function Scene({ model, wasmGeometry, wasmActive }: FloorplanSceneProps) {
 
   return (
     <>
@@ -188,7 +194,13 @@ function Scene({ model }: FloorplanSceneProps) {
         infiniteGrid
       />
 
-      {model.walls.map((wall) => (
+      {wasmActive && wasmGeometry && (
+        <mesh geometry={wasmGeometry} castShadow receiveShadow data-testid="wasm-wall-mesh">
+          <meshStandardMaterial color="#e2e8f0" roughness={0.72} />
+        </mesh>
+      )}
+
+      {!wasmActive && model.walls.map((wall) => (
         <mesh
           key={`wall-shell-${wall.sourceIndex}`}
           position={[wall.x, wall.height / 2, wall.z]}
@@ -321,6 +333,10 @@ export default function App() {
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [projectMessage, setProjectMessage] = useState('')
   const [projectBusy, setProjectBusy] = useState<null | 'list' | 'save' | 'load'>(null)
+  const [wasmGeometry, setWasmGeometry] = useState<BufferGeometry | null>(null)
+  const [wasmState, setWasmState] = useState<'idle' | 'loading' | 'active' | 'fallback'>('idle')
+  const [wasmMetrics, setWasmMetrics] = useState<MarchingCubesMetrics | null>(null)
+  const [wasmFallback, setWasmFallback] = useState<WasmFallbackReason | null>(null)
   const webGLAvailable = useMemo(hasWebGLSupport, [])
   const exportSequenceRef = useRef(0)
 
@@ -330,6 +346,8 @@ export default function App() {
   const requestSequenceRef = useRef(0)
   const projectRequestRef = useRef<{ id: number; controller: AbortController } | null>(null)
   const projectSequenceRef = useRef(0)
+  const wasmGenerationRef = useRef(0)
+  const wasmGeometryRef = useRef<BufferGeometry | null>(null)
 
   const result = parseResponse?.result ?? null
   const walls = dragPreviewWalls ?? wallEditor?.walls ?? result?.walls ?? EMPTY_WALLS
@@ -352,6 +370,7 @@ export default function App() {
     () => wallShellModel.walls.reduce((total, wall) => total + wall.length, 0),
     [wallShellModel],
   )
+  const wallVoxelModel = useMemo(() => buildWallVoxelModel(walls), [walls])
 
   const viewport = chooseViewport(result, imageDimFallback)
   const editorScale = canvasScale(editorSize, viewport)
@@ -403,6 +422,66 @@ export default function App() {
     parseRequestRef.current?.controller.abort()
     projectRequestRef.current?.controller.abort()
   }, [])
+
+  useEffect(() => () => {
+    disposeWasmWallGeometry(wasmGeometryRef.current)
+    wasmGeometryRef.current = null
+  }, [])
+
+  useEffect(() => {
+    const generation = wasmGenerationRef.current + 1
+    wasmGenerationRef.current = generation
+    const replaceGeometry = (next: BufferGeometry | null) => {
+      disposeWasmWallGeometry(wasmGeometryRef.current)
+      wasmGeometryRef.current = next
+      setWasmGeometry(next)
+    }
+
+    if (!wallVoxelModel) {
+      replaceGeometry(null)
+      setWasmMetrics(null)
+      setWasmFallback('empty-model')
+      setWasmState('fallback')
+      return
+    }
+
+    let disposed = false
+    setWasmState('loading')
+    setWasmFallback(null)
+    setWasmMetrics(null)
+    void (async (model: WallVoxelModel) => {
+      const result = await runMarchingCubes({
+        data: model.data,
+        dimensions: model.dimensions,
+        isoLevel: model.isoLevel,
+      })
+      if (disposed || wasmGenerationRef.current !== generation) return
+      if (!result.ok) {
+        replaceGeometry(null)
+        setWasmFallback(result.reason)
+        setWasmState('fallback')
+        return
+      }
+      const nextGeometry = buildWasmWallGeometry(result.vertices, model)
+      if (!nextGeometry) {
+        replaceGeometry(null)
+        setWasmFallback('invalid-output')
+        setWasmState('fallback')
+        return
+      }
+      if (disposed || wasmGenerationRef.current !== generation) {
+        disposeWasmWallGeometry(nextGeometry)
+        return
+      }
+      replaceGeometry(nextGeometry)
+      setWasmMetrics(result.metrics)
+      setWasmState('active')
+    })(wallVoxelModel)
+
+    return () => {
+      disposed = true
+    }
+  }, [wallVoxelModel])
 
   useEffect(() => {
     void refreshProjects()
@@ -1211,11 +1290,19 @@ export default function App() {
         aria-label="3D 户型预览"
       >
         <div className="absolute left-3 top-3 z-10 rounded-xl bg-black/60 px-3 py-2 text-xs text-white/75">
-          <div className="font-medium text-white/90">3D 墙体白模 v1</div>
+          <div className="font-medium text-white/90">3D 墙体 WASM Marching Cubes</div>
           <div className="mt-1 flex gap-3 text-[11px] text-white/60" aria-label="3D 白模实时指标">
+            <span data-testid="wasm-engine-state">引擎 {wasmState}</span>
+            <span data-testid="wasm-grid">Grid {wasmMetrics ? wasmMetrics.grid.join('×') : '—'}</span>
+            <span data-testid="wasm-triangles">三角 {wasmMetrics?.triangleCount ?? 0}</span>
             <span>墙体 {wallShellModel.walls.length}</span>
-            <span>Marker {wallShellModel.openings.length}</span>
-            <span>总长 {wallShellTotalLength.toFixed(2)}</span>
+          </div>
+          <div className="mt-1 text-[11px] text-white/60" data-testid="wasm-resource-metrics">
+            {wasmMetrics
+              ? `顶点 ${wasmMetrics.vertexCount} · ${wasmMetrics.elapsedMs.toFixed(1)}ms · 输入 ${wasmMetrics.inputBytes}B · 输出 ${wasmMetrics.outputBytes}B`
+              : wasmFallback
+                ? `fallback: ${wasmFallback} · wall-shell ${wallShellTotalLength.toFixed(2)}`
+                : '正在准备受控 17³ 标量场'}
           </div>
         </div>
         <div className="h-full w-full">
@@ -1229,7 +1316,7 @@ export default function App() {
               }}
             >
               <Suspense fallback={null}>
-                <Scene model={wallShellModel} />
+                <Scene model={wallShellModel} wasmGeometry={wasmGeometry} wasmActive={wasmState === 'active'} />
                 <OrbitControls makeDefault />
               </Suspense>
             </Canvas>
@@ -1246,7 +1333,7 @@ export default function App() {
           )}
         </div>
         <div className="pointer-events-none absolute bottom-3 left-3 right-3 rounded-xl bg-black/55 px-3 py-2 text-center text-xs text-white/50">
-          白模实时跟随当前墙段；橙色/蓝色仅为门窗 marker，本版本尚未进行布尔开洞
+          WASM 网格实时跟随当前墙段；失败时互斥回退至 wall-shell。橙色/蓝色仅为门窗 marker，尚未进行布尔开洞
         </div>
       </main>
       </div>

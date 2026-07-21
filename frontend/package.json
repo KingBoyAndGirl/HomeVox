@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "build:wasm": "cd ../wasm && wasm-pack build --target web --out-dir pkg",
+    "prebuild": "npm run build:wasm",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",

@@ -32,7 +32,7 @@ HomeVox 采用混合技术路线：**Go 管业务 API，Rust 管体素/几何核
 - ✅ Go 单进程固定监听 `0.0.0.0:18088`，同源提供 `/api/*` 与 `frontend/dist`，并支持 SPA fallback
 - ✅ 户型图上传与 OpenAI-compatible AI 解析接口已落地；正向解析运行需要配置 `AI_API_KEY`、`AI_BASE_URL`、`AI_MODEL`
 - ✅ 2D 户型校正编辑器支持墙体选择、共享端点拖拽、Undo/Redo 与底图显隐
-- ✅ 3D 墙体白模 v1 由当前可编辑墙段实时生成墙体与基础地面，2D 拖拽、Undo/Redo 会同步更新白模几何指标
+- ✅ Issue #13：生产前端构建会从 `wasm/` 源码执行 `wasm-pack build --target web`，由受控 17³（4,913 voxel）标量场调用 Rust Marching Cubes，并在 R3F 中显示有限 position/normal 的真实 WASM 网格。
 - ✅ 门窗以真实坐标生成橙色/蓝色定位 marker；当前尚未进行布尔开洞，墙高与墙厚为 v1 展示常量而非建筑实测尺寸
 - ✅ WebGL 不可用时显示明确降级提示，不再留下空黑 3D 视口
 - ✅ Issue #9：为当前可用 2D/3D 视图提供一次点击一次下载的 PNG 导出，支持空白/尺寸/序列化等失败闭环；3D 导出通过 R3F 渲染器即时渲染后抓取并规避对象 URL 过早回收
@@ -40,7 +40,7 @@ HomeVox 采用混合技术路线：**Go 管业务 API，Rust 管体素/几何核
 - ✅ Issue #11：项目可持久化保存、列表加载与修订保存已接入单端口 API。服务端在上传前分配 UUID，并以同一 UUID 写入 PostgreSQL 与 `projects/{uuid}/source-image` S3/MinIO 对象键；数据库写入失败会删除该对象。
 - ✅ 项目 API 仅在 PostgreSQL schema/ping 与 S3 bucket 均验证就绪时可用；`/api/config` 分别报告 `not_configured`、`incomplete_config`、`unavailable` 或 `ready` 状态。
 - ✅ 已用隔离 PostgreSQL + MinIO 验证 create/get/list/source-image/update/stale-revision-409、重启后加载及未配置持久化时 project API 的 503；该验收使用 fixture 文档，不包含真实 AI 正向解析。
-- ⏳ 下一步：Rust/WASM 浏览器业务接入；真实 AI 样本验收暂缓
+- 3D 视口公开引擎状态、grid、三角形/顶点、调用耗时与输入/输出字节；单次主线程 WASM 调用预算为 50ms。加载、输入、输出或预算失败时明确回退到既有 wall-shell，2D 编辑、项目加载和 PNG 导出仍可用。
 
 ## 许可
 
