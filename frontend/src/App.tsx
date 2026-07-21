@@ -30,6 +30,14 @@ import {
   exportWebGLCanvasToPng,
   validateCanvasSize,
 } from './export'
+import {
+  createProject,
+  getProject,
+  listProjects,
+  updateProject,
+  type ProjectDetail,
+  type ProjectSummary,
+} from './projects'
 
 const API_PARSE_URL = '/api/floorplans/parse'
 const EMPTY_WALLS: WallSegment[] = []
@@ -308,6 +316,11 @@ export default function App() {
   const [imageDimFallback, setImageDimFallback] = useState<{ width: number; height: number } | null>(null)
   const [editorSize, setEditorSize] = useState({ width: 0, height: 0 })
   const [threeRenderer, setThreeRenderer] = useState<RootState | null>(null)
+  const [projectName, setProjectName] = useState('')
+  const [currentProject, setCurrentProject] = useState<ProjectDetail | null>(null)
+  const [projects, setProjects] = useState<ProjectSummary[]>([])
+  const [projectMessage, setProjectMessage] = useState('')
+  const [projectBusy, setProjectBusy] = useState<null | 'list' | 'save' | 'load'>(null)
   const webGLAvailable = useMemo(hasWebGLSupport, [])
   const exportSequenceRef = useRef(0)
 
@@ -315,6 +328,8 @@ export default function App() {
   const svgUrlRef = useRef('')
   const parseRequestRef = useRef<{ id: number; controller: AbortController } | null>(null)
   const requestSequenceRef = useRef(0)
+  const projectRequestRef = useRef<{ id: number; controller: AbortController } | null>(null)
+  const projectSequenceRef = useRef(0)
 
   const result = parseResponse?.result ?? null
   const walls = dragPreviewWalls ?? wallEditor?.walls ?? result?.walls ?? EMPTY_WALLS
@@ -326,6 +341,9 @@ export default function App() {
       walls,
     }
   }, [parseResponse, walls])
+  const durableDocument = useMemo<ParseResponse | null>(() => (
+    parseResponse ? { ...parseResponse, result: { ...parseResponse.result, walls } } : null
+  ), [parseResponse, walls])
   const wallShellModel = useMemo(
     () => buildWallShellModel(walls, result?.doors ?? [], result?.windows ?? []),
     [walls, result?.doors, result?.windows],
@@ -383,6 +401,11 @@ export default function App() {
 
   useEffect(() => () => {
     parseRequestRef.current?.controller.abort()
+    projectRequestRef.current?.controller.abort()
+  }, [])
+
+  useEffect(() => {
+    void refreshProjects()
   }, [])
 
   useEffect(() => () => {
@@ -507,6 +530,8 @@ export default function App() {
       if (parseRequestRef.current?.id !== requestId) return
 
       setParseResponse(body)
+      setCurrentProject(null)
+      setProjectName((current) => current || body.filename)
       setStatus('ready')
       setDraggedEndpoint(null)
       setDragPreviewWalls(null)
@@ -540,11 +565,104 @@ export default function App() {
     setExportError('')
     setStatus('idle')
     setImageDimFallback(null)
+    setCurrentProject(null)
 
     setPreviewURL((currentURL) => {
       if (currentURL) URL.revokeObjectURL(currentURL)
       return file ? URL.createObjectURL(file) : ''
     })
+  }
+
+  function beginProjectRequest(): { id: number; controller: AbortController } {
+    projectRequestRef.current?.controller.abort()
+    const request = { id: projectSequenceRef.current + 1, controller: new AbortController() }
+    projectSequenceRef.current = request.id
+    projectRequestRef.current = request
+    return request
+  }
+
+  async function refreshProjects() {
+    const request = beginProjectRequest()
+    setProjectBusy('list')
+    try {
+      const items = await listProjects(request.controller.signal)
+      if (projectRequestRef.current?.id === request.id) setProjects(items)
+    } catch (err) {
+      if (!request.controller.signal.aborted && projectRequestRef.current?.id === request.id) {
+        setProjectMessage(`项目列表加载失败：${err instanceof Error ? err.message : '未知错误'}`)
+      }
+    } finally {
+      if (projectRequestRef.current?.id === request.id) setProjectBusy(null)
+    }
+  }
+
+  async function handleProjectSave() {
+    if (!durableDocument) {
+      setProjectMessage('请先完成户型解析后再创建项目')
+      return
+    }
+    if (!projectName.trim()) {
+      setProjectMessage('请输入项目名称')
+      return
+    }
+    if (!currentProject && !selectedFile) {
+      setProjectMessage('创建项目需要原始户型图')
+      return
+    }
+    const request = beginProjectRequest()
+    setProjectBusy('save')
+    setProjectMessage('')
+    try {
+      const saved = currentProject
+        ? await updateProject(currentProject.id, projectName, durableDocument, currentProject.revision, request.controller.signal)
+        : await createProject(projectName, durableDocument, selectedFile!, request.controller.signal)
+      if (projectRequestRef.current?.id !== request.id) return
+      setCurrentProject(saved)
+      setProjectName(saved.name)
+      setProjectMessage(currentProject ? '项目已保存' : '项目已创建')
+      setProjects((items) => [saved, ...items.filter((item) => item.id !== saved.id)])
+    } catch (err) {
+      if (!request.controller.signal.aborted && projectRequestRef.current?.id === request.id) {
+        setProjectMessage(`项目保存失败：${err instanceof Error ? err.message : '未知错误'}`)
+      }
+    } finally {
+      if (projectRequestRef.current?.id === request.id) setProjectBusy(null)
+    }
+  }
+
+  async function handleLoadProject(id: string) {
+    const request = beginProjectRequest()
+    setProjectBusy('load')
+    setProjectMessage('')
+    try {
+      const loaded = await getProject(id, request.controller.signal)
+      const imageResponse = await fetch(loaded.sourceImageURL, { signal: request.controller.signal })
+      if (!imageResponse.ok) throw new Error(`HTTP ${imageResponse.status}: 无法加载原始户型图`)
+      const imageBlob = await imageResponse.blob()
+      if (!imageBlob.type.startsWith('image/')) throw new Error('原始户型图不是受支持的图片')
+      if (projectRequestRef.current?.id !== request.id) return
+      const nextPreviewURL = URL.createObjectURL(imageBlob)
+      setPreviewURL((currentURL) => {
+        if (currentURL) URL.revokeObjectURL(currentURL)
+        return nextPreviewURL
+      })
+      setSelectedFile(null)
+      setParseResponse(loaded.document)
+      setCurrentProject(loaded)
+      setProjectName(loaded.name)
+      setStatus('ready')
+      setProjectMessage('项目已加载')
+      setDraggedEndpoint(null)
+      setDragPreviewWalls(null)
+      setHoveredEndpoint(null)
+      setSelectedWallIndex(null)
+    } catch (err) {
+      if (!request.controller.signal.aborted && projectRequestRef.current?.id === request.id) {
+        setProjectMessage(`项目加载失败：${err instanceof Error ? err.message : '未知错误'}`)
+      }
+    } finally {
+      if (projectRequestRef.current?.id === request.id) setProjectBusy(null)
+    }
   }
 
   function handleUndo() {
@@ -763,6 +881,53 @@ export default function App() {
             {error && <p className="mt-2 leading-5 text-red-300">{error}</p>}
             {exportError && <p className="mt-2 leading-5 text-amber-300">{exportError}</p>}
           </div>
+        </section>
+
+        <section className="mt-4 space-y-3 rounded-xl border border-white/10 bg-slate-950/70 p-3 text-xs">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">项目保存与加载</h2>
+            <button
+              className="rounded-md bg-slate-800 px-2 py-1 text-slate-200 disabled:opacity-50"
+              type="button"
+              disabled={projectBusy !== null}
+              onClick={() => void refreshProjects()}
+            >
+              {projectBusy === 'list' ? '刷新中…' : '刷新'}
+            </button>
+          </div>
+          <input
+            aria-label="项目名称"
+            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+            value={projectName}
+            maxLength={120}
+            placeholder="项目名称"
+            onChange={(event) => setProjectName(event.target.value)}
+          />
+          <button
+            className="w-full rounded-lg bg-violet-600 px-3 py-2 font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+            type="button"
+            disabled={!durableDocument || projectBusy !== null}
+            onClick={() => void handleProjectSave()}
+          >
+            {projectBusy === 'save' ? '保存中…' : currentProject ? `保存项目（r${currentProject.revision}）` : '创建项目'}
+          </button>
+          {projectMessage && <p className="leading-5 text-slate-300">{projectMessage}</p>}
+          <ul className="max-h-44 space-y-2 overflow-y-auto" aria-label="已保存项目">
+            {projects.map((item) => (
+              <li key={item.id} className="flex items-center justify-between gap-2 rounded-lg bg-slate-900 p-2">
+                <span className="min-w-0 truncate text-slate-200">{item.name} <span className="text-slate-500">r{item.revision}</span></span>
+                <button
+                  className="shrink-0 rounded-md bg-sky-700 px-2 py-1 text-white disabled:opacity-50"
+                  type="button"
+                  disabled={projectBusy !== null}
+                  onClick={() => void handleLoadProject(item.id)}
+                >
+                  {projectBusy === 'load' ? '加载中…' : '加载'}
+                </button>
+              </li>
+            ))}
+            {projects.length === 0 && <li className="text-slate-500">暂无已保存项目</li>}
+          </ul>
         </section>
 
         <section className="space-y-2 rounded-xl bg-slate-950/70 p-3 text-xs">

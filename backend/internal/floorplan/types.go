@@ -49,3 +49,14 @@ type ParseResult struct {
 	Scale    Scale     `json:"scale"`
 	Metadata Metadata  `json:"metadata"`
 }
+
+// ParseResponse is the complete durable editor document. It preserves the
+// source metadata returned by the parse endpoint together with the editable
+// floorplan result; only the result's walls are subsequently changed by the
+// editor.
+type ParseResponse struct {
+	Filename    string      `json:"filename"`
+	ContentType string      `json:"contentType"`
+	Size        int         `json:"size"`
+	Result      ParseResult `json:"result"`
+}

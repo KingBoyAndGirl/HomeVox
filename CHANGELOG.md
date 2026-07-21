@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- 完成 Issue #11 项目持久化：前端支持创建、保存、列表和加载项目；后端提供项目 create/get/list/source-image/update API、稳定嵌套错误 envelope 与 revision conflict 409。
+- 项目 UUID 在 API 上传源图前由服务端生成；同一 UUID 显式写入 PostgreSQL，并用于不可变 S3/MinIO `projects/{uuid}/source-image` 对象键。数据库写入失败时会补偿删除已上传对象。
+- PostgreSQL 和 S3/MinIO readiness 独立验证并在 `/api/config` 报告真实状态；项目 API 仅在两者均为 `ready` 时开放。
+
+### Verification
+
+- 使用隔离 PostgreSQL + MinIO 完成真实 lifecycle 与 Go 单端口 API E2E：create/get/list/source image/update/stale revision 409、重启加载、无持久化 503，同时确认 health/static 不退化。
+- E2E 使用受控 fixture 项目文档；未执行真实 AI 正向解析验收。
+
 ### Changed
 
 - 完成 Issue #7 的 3D 墙体白模 v1：由当前可编辑墙段实时生成归一化墙体与基础地面，移除误导性的 room-bounds 实心体块。

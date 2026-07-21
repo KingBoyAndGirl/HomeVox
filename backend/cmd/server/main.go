@@ -15,7 +15,8 @@ func main() {
 	if err := validateFrontendDir(cfg.FrontendDir); err != nil {
 		log.Fatalf("frontend build unavailable: %v", err)
 	}
-	router := api.NewRouter(cfg, cfg.FrontendDir)
+	router, cleanup := api.NewRouterWithCleanup(cfg, cfg.FrontendDir)
+	defer cleanup()
 
 	log.Printf("HomeVox listening on %s (API + frontend %s)", cfg.ListenAddr, cfg.FrontendDir)
 	if err := router.Run(cfg.ListenAddr); err != nil {
