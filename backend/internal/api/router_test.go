@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"mime/multipart"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/KingBoyAndGirl/HomeVox/backend/internal/config"
 )
@@ -69,6 +71,49 @@ func TestConfigRequiresCompleteS3Credentials(t *testing.T) {
 	}
 	if body["s3Status"] != "incomplete_config" {
 		t.Fatalf("s3Status = %v", body["s3Status"])
+	}
+}
+
+func TestConfiguredUnresponsivePersistenceOnlyDisablesProjectAPIs(t *testing.T) {
+	frontendDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(frontendDir, "index.html"), []byte("<main>HomeVox shell</main>"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+
+	started := time.Now()
+	router, cleanup := newRouterWithCleanup(
+		config.Config{DatabaseURL: "postgres://unresponsive"},
+		20*time.Millisecond,
+		func(ctx context.Context, _ databaseConfig) projectDependencies {
+			<-ctx.Done()
+			return projectDependencies{databaseStatus: statusUnavailable, s3Status: statusNotConfigured}
+		},
+		frontendDir,
+	)
+	defer cleanup()
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("router startup took %s despite bounded persistence context", elapsed)
+	}
+
+	for _, tc := range []struct {
+		path       string
+		wantStatus int
+		wantBody   string
+	}{
+		{path: "/api/health", wantStatus: http.StatusOK, wantBody: `"status":"ok"`},
+		{path: "/", wantStatus: http.StatusOK, wantBody: "HomeVox shell"},
+		{path: "/api/projects", wantStatus: http.StatusServiceUnavailable, wantBody: "persistence_unavailable"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tc.path, nil))
+			if w.Code != tc.wantStatus {
+				t.Fatalf("%s status = %d, want %d; body=%s", tc.path, w.Code, tc.wantStatus, w.Body.String())
+			}
+			if !strings.Contains(w.Body.String(), tc.wantBody) {
+				t.Fatalf("%s body = %q, want substring %q", tc.path, w.Body.String(), tc.wantBody)
+			}
+		})
 	}
 }
 

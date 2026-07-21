@@ -18,6 +18,7 @@ import (
 )
 
 const maxFloorplanUploadBytes = 10 << 20
+const persistenceStartupTimeout = 5 * time.Second
 
 type healthResponse struct {
 	Status  string `json:"status"`
@@ -33,17 +34,25 @@ func NewRouter(cfg config.Config, frontendDirs ...string) *gin.Engine {
 // NewRouterWithCleanup exposes the persistence-resource cleanup required by
 // the long-running server while keeping the lightweight test constructor.
 func NewRouterWithCleanup(cfg config.Config, frontendDirs ...string) (*gin.Engine, func()) {
+	return newRouterWithCleanup(cfg, persistenceStartupTimeout, newProjectDependencies, frontendDirs...)
+}
+
+type projectDependenciesInitializer func(context.Context, databaseConfig) projectDependencies
+
+func newRouterWithCleanup(cfg config.Config, startupTimeout time.Duration, initializeDependencies projectDependenciesInitializer, frontendDirs ...string) (*gin.Engine, func()) {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery(), corsMiddleware())
 	parser := floorplan.NewParser(ai.NewClientFromConfig(cfg))
-	deps := newProjectDependencies(context.Background(), databaseConfig{
+	startupContext, cancelStartup := context.WithTimeout(context.Background(), startupTimeout)
+	deps := initializeDependencies(startupContext, databaseConfig{
 		DatabaseURL: cfg.DatabaseURL,
 		S3Endpoint:  cfg.S3Endpoint,
 		S3Bucket:    cfg.S3Bucket,
 		S3AccessKey: cfg.S3AccessKey,
 		S3SecretKey: cfg.S3SecretKey,
 	})
+	cancelStartup()
 	databaseStatus, s3Status, databaseConfigured, s3Configured := projectStatusesFromDependencies(deps)
 
 	router.GET("/api/health", func(c *gin.Context) {
