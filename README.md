@@ -44,14 +44,17 @@ HomeVox 采用混合技术路线：**Go 管业务 API，Rust 管体素/几何核
 
 ## 可复现 WASM 与浏览器验收
 
-`rust-toolchain.toml` 固定 Rust `1.96.1` 和 `wasm32-unknown-unknown`，`scripts/bootstrap-wasm.sh` 固定 `wasm-pack 0.13.1`。从 clean checkout 运行：
+`rust-toolchain.toml` 固定 Rust `1.96.1` 和 `wasm32-unknown-unknown`，`scripts/bootstrap-wasm.sh` 固定 `wasm-pack 0.13.1`。`rustup` 是 clean checkout 的明确前置条件（bootstrap 会调用它来安装固定 toolchain/target）；先安装 Rustup 后验证 `rustup --version`，再运行：
 
 ```bash
+rustup --version
 npm --prefix frontend ci
 npm --prefix frontend run build
 npm --prefix frontend test
 npm --prefix frontend run test:e2e
 ```
+
+若 `rustup` 未找到，请先按 Rust 官方安装器安装并重新打开 shell；若 target 缺失，重新执行 `scripts/bootstrap-wasm.sh`。浏览器验收会启动隔离 PostgreSQL + MinIO，同网络内以 production Go server 保存并重新加载 fixture 项目。
 
 构建会生成忽略的 `wasm/pkg/` bindings 与 `frontend/dist/`；不要提交它们。生产浏览器验收由 Go 在 `0.0.0.0:18088` 提供 production assets，加载实际 `.wasm`（`application/wasm`），并使用受控 17³ fixture 验证 Rust 调用、有限几何、拖拽/Undo/Redo、3D PNG 下载及 reload 后重建。Playwright 首次使用前执行 `npm --prefix frontend exec playwright install chromium`。
 

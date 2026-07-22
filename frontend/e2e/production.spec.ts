@@ -4,7 +4,7 @@ const baseURL = process.env.HOMEVOX_E2E_BASE_URL ?? 'http://127.0.0.1:18088'
 
 test.use({ baseURL, viewport: { width: 1440, height: 960 } })
 
-test('loads production Rust/WASM mesh, keeps the latest drag generation, exports PNG, and rebuilds after reload', async ({ page }) => {
+test('loads production Rust/WASM mesh, persists a fixture project, keeps the latest drag generation, exports PNG, and rebuilds from storage', async ({ page }) => {
   const wasmResponses: string[] = []
   page.on('response', (response) => {
     if (response.url().endsWith('.wasm')) wasmResponses.push(response.headers()['content-type'] ?? '')
@@ -24,6 +24,11 @@ test('loads production Rust/WASM mesh, keeps the latest drag generation, exports
   expect(initial?.metrics.inputBytes).toBe(17 ** 3 * 4)
   expect(initial?.metrics.outputBytes).toBeGreaterThan(0)
 
+  await page.getByRole('button', { name: '创建项目' }).click()
+  await expect(page.getByText('项目已创建')).toBeVisible()
+  const persistedProjectID = await page.evaluate(() => window.__homevoxE2E?.currentProjectId)
+  expect(persistedProjectID).toMatch(/^[0-9a-f-]{36}$/i)
+
   const endpoint = page.getByTestId('endpoint-handle-0-start')
   const box = await endpoint.boundingBox()
   expect(box).not.toBeNull()
@@ -39,7 +44,6 @@ test('loads production Rust/WASM mesh, keeps the latest drag generation, exports
     .toBeGreaterThan(initial?.generation ?? 0)
   await expect(page.getByTestId('wasm-engine-state')).toHaveText(/active/)
   const dragged = await page.evaluate(() => window.__homevoxE2E)
-  expect(dragged?.generation).toBeGreaterThan(initial?.generation ?? 0)
   expect(dragged?.geometry.finite).toBe(true)
 
   await page.getByRole('button', { name: /撤销/ }).click()
@@ -57,18 +61,22 @@ test('loads production Rust/WASM mesh, keeps the latest drag generation, exports
 
   const download = page.waitForEvent('download')
   await page.getByRole('button', { name: '导出3D白模PNG' }).click()
-  const png = await download
-  expect(png.suggestedFilename()).toMatch(/\.png$/)
+  expect((await download).suggestedFilename()).toMatch(/\.png$/)
 
-  await page.reload()
+  await page.goto(`/?e2e=wall-fixture&project=${persistedProjectID}`)
+  await expect(page.getByText('项目已加载')).toBeVisible()
   await expect(page.getByTestId('wasm-engine-state')).toHaveText(/active/)
   const reloaded = await page.evaluate(() => window.__homevoxE2E)
+  expect(reloaded?.currentProjectId).toBe(persistedProjectID)
   expect(reloaded?.wasmCalls).toBeGreaterThan(0)
   expect(reloaded?.geometry.finite).toBe(true)
   expect(wasmResponses.some((contentType) => contentType.includes('application/wasm'))).toBe(true)
+})
 
-  await page.goto('/?e2e=wall-fixture&wasm=fallback')
+test('uses the adapter load failure branch to fall back while retaining the wall shell and 2D editor', async ({ page }) => {
+  await page.goto('/?e2e=wall-fixture&wasm=load-failure')
   await expect(page.getByTestId('wasm-engine-state')).toHaveText(/fallback/)
   await expect(page.getByTestId('wasm-resource-metrics')).toHaveText(/fallback: load-failed/)
+  await expect(page.getByTestId('wasm-resource-metrics')).toContainText(/wall-shell [1-9]/)
   await expect(page.getByRole('img', { name: '户型图墙体端点编辑区' })).toBeVisible()
 })

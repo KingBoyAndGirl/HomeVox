@@ -25,7 +25,7 @@ import {
 } from './floorplanUi'
 import { buildWallShellModel, type WallShellModel } from './wallShell'
 import { buildWallVoxelModel, type WallVoxelModel } from './wallVoxel'
-import { runMarchingCubes, type MarchingCubesMetrics, type WasmFallbackReason } from './wasmMarchingCubes'
+import { runMarchingCubes, type MarchingCubesMetrics, type WasmBindings, type WasmFallbackReason } from './wasmMarchingCubes'
 import { buildWasmWallGeometry, disposeWasmWallGeometry } from './wasmGeometry'
 import {
   buildExportFileName,
@@ -48,7 +48,7 @@ const EMPTY_WALLS: WallSegment[] = []
 const E2E_WALL_FIXTURE: ParseResponse = {
   filename: 'e2e-wall-fixture.png',
   contentType: 'image/png',
-  size: 1,
+  size: 12,
   result: {
     rooms: [],
     walls: [
@@ -78,6 +78,7 @@ declare global {
       wasmCalls: number
       metrics: MarchingCubesMetrics | null
       geometry: { positionCount: number; normalCount: number; finite: boolean }
+      currentProjectId: string | null
     }
   }
 }
@@ -86,8 +87,18 @@ function isE2EFixtureEnabled(): boolean {
   return typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('e2e') === 'wall-fixture'
 }
 
-function isE2EFallbackForced(): boolean {
-  return typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('wasm') === 'fallback'
+function e2EProjectID(): string | null {
+  if (typeof window === 'undefined') return null
+  const value = new URLSearchParams(window.location.search).get('project')
+  return value && /^[0-9a-f-]{36}$/i.test(value) ? value : null
+}
+
+function e2EWasmFailureEnabled(): boolean {
+  return typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('wasm') === 'load-failure'
+}
+
+const failingE2EWasmLoader = async (): Promise<WasmBindings> => {
+  throw new Error('E2E fixture rejected WASM loader')
 }
 
 
@@ -433,7 +444,8 @@ export default function App() {
     !isExporting
 
   useEffect(() => {
-    if (!isE2EFixtureEnabled()) return
+    if (!isE2EFixtureEnabled() || e2EProjectID()) return
+    setSelectedFile(new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0])], 'e2e-wall-fixture.png', { type: 'image/png' }))
     setParseResponse(E2E_WALL_FIXTURE)
     setStatus('ready')
     setProjectName('Production E2E wall fixture')
@@ -458,8 +470,9 @@ export default function App() {
         normalCount: normals?.count ?? 0,
         finite,
       },
+      currentProjectId: currentProject?.id ?? null,
     }
-  }, [wasmGeometry, wasmMetrics, wasmState])
+  }, [currentProject, wasmGeometry, wasmMetrics, wasmState])
 
   function buildScopeFileName(scope: '2d' | '3d'): string {
     exportSequenceRef.current += 1
@@ -511,25 +524,20 @@ export default function App() {
       setWasmState('fallback')
       return
     }
-    if (isE2EFallbackForced()) {
-      replaceGeometry(null)
-      setWasmMetrics(null)
-      setWasmFallback('load-failed')
-      setWasmState('fallback')
-      return
-    }
-
     let disposed = false
     setWasmState('loading')
     setWasmFallback(null)
     setWasmMetrics(null)
     void (async (model: WallVoxelModel) => {
       wasmCallsRef.current += 1
-      const result = await runMarchingCubes({
-        data: model.data,
-        dimensions: model.dimensions,
-        isoLevel: model.isoLevel,
-      })
+      const result = await runMarchingCubes(
+        {
+          data: model.data,
+          dimensions: model.dimensions,
+          isoLevel: model.isoLevel,
+        },
+        e2EWasmFailureEnabled() ? failingE2EWasmLoader : undefined,
+      )
       if (disposed || wasmGenerationRef.current !== generation) return
       if (!result.ok) {
         replaceGeometry(null)
@@ -560,6 +568,11 @@ export default function App() {
 
   useEffect(() => {
     void refreshProjects()
+  }, [])
+
+  useEffect(() => {
+    const projectID = e2EProjectID()
+    if (projectID) void handleLoadProject(projectID)
   }, [])
 
   useEffect(() => () => {
