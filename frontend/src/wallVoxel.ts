@@ -1,4 +1,5 @@
 import type { WallSegment } from './floorplanEditor'
+import type { ParsedOpening } from './floorplanUi'
 import {
   buildWallShellModel,
   WALL_SHELL_HEIGHT,
@@ -40,8 +41,8 @@ function signedBoxDistance(
  * plan, Y is vertical.  The wall shell's normalization is intentionally reused
  * so the fallback and WASM mesh share the same scale, height, and thickness.
  */
-export function buildWallVoxelModel(walls: readonly WallSegment[]): WallVoxelModel | null {
-  const shell = buildWallShellModel(walls, [], [])
+export function buildWallVoxelModel(walls: readonly WallSegment[], doors: readonly ParsedOpening[] = [], windows: readonly ParsedOpening[] = []): WallVoxelModel | null {
+  const shell = buildWallShellModel(walls, doors, windows)
   if (shell.walls.length === 0) return null
 
   const minX = Math.min(...shell.walls.map((wall) => wall.x - wall.length / 2))
@@ -95,6 +96,15 @@ export function buildWallVoxelModel(walls: readonly WallSegment[]): WallVoxelMod
               WALL_SHELL_THICKNESS / 2,
             ),
           )
+        }
+        // Openings subtract from the same local-wall model. Doors reach the floor;
+        // windows cut only their wall face at a non-persisted preview elevation.
+        for (const opening of shell.openings) {
+          const halfWidth = opening.width / 2
+          const openingHeight = opening.kind === 'door' ? WALL_SHELL_HEIGHT : WALL_SHELL_HEIGHT * 0.42
+          const centerY = opening.kind === 'door' ? openingHeight / 2 : WALL_SHELL_HEIGHT * 0.62
+          const cut = -signedBoxDistance(x - opening.x, y - centerY, z - opening.z, halfWidth, openingHeight / 2, WALL_SHELL_THICKNESS)
+          field = Math.min(field, -cut)
         }
         if (!finite(field)) return null
         data[xIndex + yIndex * nx + zIndex * nx * ny] = field

@@ -1,6 +1,8 @@
 export type Endpoint = 'start' | 'end'
 
 export interface WallSegment {
+  /** Durable wall identity; legacy parse previews may omit it until normalized. */
+  id?: string
   x1: number
   y1: number
   x2: number

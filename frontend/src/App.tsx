@@ -52,13 +52,13 @@ const E2E_WALL_FIXTURE: ParseResponse = {
   result: {
     rooms: [],
     walls: [
-      { x1: 80, y1: 80, x2: 520, y2: 80 },
-      { x1: 520, y1: 80, x2: 520, y2: 360 },
-      { x1: 520, y1: 360, x2: 80, y2: 360 },
-      { x1: 80, y1: 360, x2: 80, y2: 80 },
+      { id: 'wall-1', x1: 80, y1: 80, x2: 520, y2: 80 },
+      { id: 'wall-2', x1: 520, y1: 80, x2: 520, y2: 360 },
+      { id: 'wall-3', x1: 520, y1: 360, x2: 80, y2: 360 },
+      { id: 'wall-4', x1: 80, y1: 360, x2: 80, y2: 80 },
     ],
-    doors: [],
-    windows: [],
+    doors: [{ id: 'door-1', kind: 'door', wallId: 'wall-1', position: 0.5, width: 72, source: 'fixture', confirmed: false }],
+    windows: [{ id: 'window-1', kind: 'window', wallId: 'wall-2', position: 0.5, width: 64, source: 'fixture', confirmed: false }],
     scale: { unit: 'px' },
     metadata: { source: 'production-e2e-fixture', image_width: 600, image_height: 440 },
   },
@@ -419,7 +419,7 @@ export default function App() {
     () => wallShellModel.walls.reduce((total, wall) => total + wall.length, 0),
     [wallShellModel],
   )
-  const wallVoxelModel = useMemo(() => buildWallVoxelModel(walls), [walls])
+  const wallVoxelModel = useMemo(() => buildWallVoxelModel(walls, result?.doors ?? [], result?.windows ?? []), [walls, result?.doors, result?.windows])
 
   const viewport = chooseViewport(result, imageDimFallback)
   const editorScale = canvasScale(editorSize, viewport)
@@ -1422,7 +1422,7 @@ export default function App() {
           )}
         </div>
         <div className="pointer-events-none absolute bottom-3 left-3 right-3 rounded-xl bg-black/55 px-3 py-2 text-center text-xs text-white/50">
-          WASM 网格实时跟随当前墙段；失败时互斥回退至 wall-shell。橙色/蓝色仅为门窗 marker，尚未进行布尔开洞
+          WASM 网格实时跟随墙体及其局部开口；仅在引擎 active 时声明真实开洞。失败时显示 wall-shell 降级与可观察错误。
         </div>
       </main>
       </div>

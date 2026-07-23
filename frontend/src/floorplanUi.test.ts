@@ -66,3 +66,14 @@ describe('2D editor view helpers', () => {
     expect(openingLabel({ type: 'window', from: '客厅', to: '室外' })).toBe('window · 客厅 → 室外')
   })
 })
+
+import { validateOpenings } from './floorplanUi'
+
+describe('durable local wall openings', () => {
+  const walls = [{ id: 'wall-a', x1: 0, y1: 0, x2: 100, y2: 0 }]
+  it('accepts a stable local opening and rejects endpoint overlap or missing walls', () => {
+    expect(validateOpenings(walls, [{ id: 'door-a', kind: 'door', wallId: 'wall-a', position: 0.5, width: 20, confirmed: false }])).toBeNull()
+    expect(validateOpenings(walls, [{ id: 'door-a', kind: 'door', wallId: 'wall-a', position: 0.05, width: 20 }])).toContain('endpoint')
+    expect(validateOpenings(walls, [{ id: 'door-a', kind: 'door', wallId: 'missing', position: 0.5, width: 20 }])).toContain('missing')
+  })
+})
