@@ -6,6 +6,19 @@ const restartURL = process.env.HOMEVOX_E2E_RESTART_URL
 
 test.use({ baseURL, viewport: { width: 1440, height: 960 } })
 
+test('captures the four frozen-design representative states from the production shell', async ({ page }, testInfo) => {
+  await page.goto('/')
+  await page.screenshot({ path: testInfo.outputPath('issue-19-import-ai.png'), fullPage: true })
+
+  await page.goto('/?e2e=wall-fixture')
+  await page.getByRole('button', { name: '校正 2D' }).click()
+  await page.screenshot({ path: testInfo.outputPath('issue-19-2d-correction.png'), fullPage: true })
+  await page.getByRole('button', { name: '生成 3D' }).click()
+  await page.screenshot({ path: testInfo.outputPath('issue-19-3d-confirm.png'), fullPage: true })
+  await page.getByRole('button', { name: '2D/3D 联动' }).click()
+  await page.screenshot({ path: testInfo.outputPath('issue-19-linked-workspace.png'), fullPage: true })
+})
+
 test('loads production Rust/WASM mesh, persists a fixture project, keeps the latest drag generation, exports PNG, and rebuilds from storage', async ({ page }) => {
   const wasmResponses: string[] = []
   page.on('response', (response) => {
@@ -156,7 +169,7 @@ test('runs the real browser image-selection to Vision parse to persisted workspa
     buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAF0lEQVR4nGL6////fwZkwARjAAIAAP//YgEEAT/f/TcAAAAASUVORK5CYII=', 'base64'),
   })
   await expect(page.getByAltText('上传户型图预览')).toBeVisible()
-  await page.getByRole('button', { name: '上传并解析' }).click()
+  await page.getByRole('button', { name: '开始 AI 识别' }).click()
   await expect(page.getByText('解析完成')).toBeVisible()
   await expect(page.getByRole('img', { name: '户型图墙体端点编辑区' })).toBeVisible()
   await page.getByLabel('项目名称').fill('controlled Vision loop')

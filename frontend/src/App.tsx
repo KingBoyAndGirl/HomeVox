@@ -49,6 +49,8 @@ import {
   type ProjectDetail,
   type ProjectSummary,
 } from './projects'
+import { PRODUCT_STEPS, canOpenStep, nextProductStep, type ProductStep } from './productFlow'
+import './App.css'
 
 const API_PARSE_URL = '/api/floorplans/parse'
 const EMPTY_WALLS: WallSegment[] = []
@@ -420,6 +422,7 @@ function hasWebGLSupport(): boolean {
 }
 
 export default function App() {
+  const [activeStep, setActiveStep] = useState<ProductStep>(1)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [previewURL, setPreviewURL] = useState<string>('')
   const [parseResponse, setParseResponse] = useState<ParseResponse | null>(null)
@@ -777,6 +780,7 @@ export default function App() {
       if (parseRequestRef.current?.id !== requestId) return
 
       setParseResponse(body)
+      setActiveStep(3)
       setCurrentProject(null)
       setProjectName((current) => current || body.filename)
       setStatus('ready')
@@ -821,6 +825,7 @@ export default function App() {
     setStatus('idle')
     setImageDimFallback(null)
     setCurrentProject(null)
+    setActiveStep(file ? 2 : 1)
 
     setPreviewURL((currentURL) => {
       if (currentURL) URL.revokeObjectURL(currentURL)
@@ -1167,18 +1172,65 @@ export default function App() {
   }
 
   return (
-    <div className="w-full h-full bg-slate-950 text-slate-100">
-      <div className="absolute top-0 left-0 right-0 z-10 bg-black/50 backdrop-blur-sm px-5 py-3 flex items-center justify-between border-b border-white/10">
-        <span className="text-sm font-medium text-white/85">筑居 HomeVox — 2D 校正、3D 墙体白模与 PNG 导出</span>
-        <span className="text-xs text-white/50">0.0.0.0:18088 API · React/R3F Viewport</span>
-      </div>
+    <div className="homevox-app">
+      <div className="homevox-layout min-h-screen lg:grid lg:grid-cols-[232px_minmax(0,1fr)]">
+        <aside className="product-sidebar flex flex-col px-4 py-6">
+          <div className="mb-8 px-2">
+            <p className="text-xs font-semibold tracking-[0.22em] text-indigo-200">HOMEVOX</p>
+            <h1 className="mt-2 text-xl font-bold">筑居</h1>
+            <p className="mt-2 text-xs leading-5 text-indigo-100/75">从真实户型图到可编辑空间</p>
+          </div>
+          <nav className="space-y-2" aria-label="产品步骤">
+            {PRODUCT_STEPS.map((step) => {
+              const unlocked = canOpenStep(step.id, Boolean(durableDocument))
+              return (
+                <button
+                  key={step.id}
+                  className="product-step flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium disabled:cursor-not-allowed"
+                  type="button"
+                  data-active={activeStep === step.id}
+                  data-locked={!unlocked}
+                  aria-current={activeStep === step.id ? 'step' : undefined}
+                  disabled={!unlocked}
+                  onClick={() => setActiveStep(step.id)}
+                >
+                  <span className="step-dot">{step.id}</span>
+                  <span>{step.label}</span>
+                </button>
+              )
+            })}
+          </nav>
+          <div className="mt-auto rounded-xl border border-white/10 bg-white/8 p-3 text-xs leading-5 text-indigo-100/80">
+            空间设计沟通工具，不是施工 CAD。未知建筑属性会保持未知，需现场实测。
+          </div>
+        </aside>
 
-      <aside className="absolute left-4 top-20 bottom-4 z-10 w-[380px] overflow-y-auto rounded-2xl border border-white/10 bg-slate-900/90 p-4 shadow-2xl backdrop-blur">
+        <div className="flex min-h-screen min-w-0 flex-col">
+          <header className="product-topbar flex min-h-[72px] items-center justify-between border-b border-slate-200 bg-white px-5 lg:px-8">
+            <div>
+              <p className="text-xs font-medium text-violet-600">步骤 {activeStep} / 6</p>
+              <h2 className="mt-1 text-lg font-bold text-slate-900">{PRODUCT_STEPS[activeStep - 1].label}</h2>
+            </div>
+            <div className="flex items-center gap-2">
+              {durableDocument && <span className="status-chip px-3 py-1.5 text-xs font-medium">同一份空间数据</span>}
+              <button
+                className="rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                type="button"
+                disabled={!durableDocument || activeStep === 6}
+                onClick={() => setActiveStep(nextProductStep(activeStep, Boolean(durableDocument)))}
+              >
+                {activeStep === 4 ? '完成并打开联动' : '继续'}
+              </button>
+            </div>
+          </header>
+
+          <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      <aside className="workspace-card inspector-card m-4 mb-0 w-auto shrink-0 overflow-y-auto p-4 text-slate-800 lg:order-2 lg:mb-4 lg:w-[300px]">
         <section className="space-y-3">
           <div>
-            <h1 className="text-lg font-semibold">户型图上传与 AI 解析</h1>
+            <h3 className="text-lg font-semibold">导入真实户型图</h3>
             <p className="mt-1 text-xs leading-5 text-slate-400">
-              上传图片后由 Go API 解析出 rooms / walls / doors / windows，后续 2D 端点可拖拽修正。
+              从你家的真实图纸开始，不套用示意户型。识别结果可继续校正为同源 2D 与 3D。
             </p>
           </div>
 
@@ -1198,17 +1250,17 @@ export default function App() {
           )}
 
           <button
-            className="w-full rounded-xl bg-sky-500 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-700"
+            className="w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
             type="button"
             disabled={status === 'uploading' || !selectedFile}
             onClick={handleParse}
           >
-            {status === 'uploading' ? '上传并解析中…' : '上传并解析'}
+            {status === 'uploading' ? 'AI 识别中…' : '开始 AI 识别'}
           </button>
 
-          <div className="rounded-xl bg-slate-950/70 p-3 text-xs">
+          <div className="rounded-xl bg-slate-50 p-3 text-xs">
             <div className="flex items-center justify-between">
-              <span className="text-slate-400">状态</span>
+              <span className="text-slate-500">AI 识别状态</span>
               <span
                 className={
                   status === 'error' ? 'text-red-300' : status === 'ready' ? 'text-emerald-300' : 'text-slate-200'
@@ -1226,9 +1278,14 @@ export default function App() {
             {error && <p className="mt-2 leading-5 text-red-300">{error}</p>}
             {exportError && <p className="mt-2 leading-5 text-amber-300">{exportError}</p>}
           </div>
+          {status === 'error' && selectedFile && (
+            <button type="button" className="w-full rounded-lg border border-violet-200 px-3 py-2 text-xs font-medium text-violet-700" onClick={handleParse}>
+              重试 AI 识别
+            </button>
+          )}
         </section>
 
-        <section className="mt-4 space-y-3 rounded-xl border border-white/10 bg-slate-950/70 p-3 text-xs">
+        <section className="mt-4 space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold">项目保存与加载</h2>
             <button
@@ -1275,7 +1332,7 @@ export default function App() {
           </ul>
         </section>
 
-        <section className="space-y-2 rounded-xl bg-slate-950/70 p-3 text-xs">
+        <section className="mt-4 space-y-2 rounded-xl bg-slate-50 p-3 text-xs">
           <h2 className="text-slate-400">导出</h2>
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -1304,7 +1361,7 @@ export default function App() {
         </section>
 
         <section className="mt-4 space-y-2 text-xs">
-          <div className="rounded-xl bg-slate-950/70 p-3" aria-label="开口编辑器">
+          <div className="rounded-xl bg-slate-50 p-3" aria-label="开口编辑器">
             <p className="text-slate-500 mb-2">门窗开口（选择墙体后添加；拖拽移动）</p>
             <div className="grid grid-cols-2 gap-2">
               <button type="button" className="rounded-lg bg-orange-600 px-3 py-2 disabled:opacity-50" disabled={selectedWallIndex === null} onClick={() => handleAddOpening('door')}>添加门</button>
@@ -1317,12 +1374,12 @@ export default function App() {
                 </label>
                 <button type="button" className="self-end rounded-lg bg-red-700 px-3 py-2" onClick={handleDeleteOpening}>删除</button>
                 {selectedOpening.kind === 'window' && (
-                  <p className="col-span-2 rounded-md border border-amber-600/60 bg-amber-950/40 p-2 text-amber-200" data-testid="window-preview-disclosure" role="status">
+                  <p className="unknown-note col-span-2 p-2" data-testid="window-preview-disclosure" role="status">
                     窗台高和窗高：confirmed={selectedOpening.confirmed === true ? 'true' : 'false（未知）'}。3D 预览使用非持久化默认值；这些尺寸不会保存为建筑参数。
                   </p>
                 )}
                 {selectedOpening.kind === 'door' && selectedOpening.confirmed !== true && (
-                  <p className="col-span-2 rounded-md border border-amber-600/60 bg-amber-950/40 p-2 text-amber-200" data-testid="door-preview-disclosure" role="status">
+                  <p className="unknown-note col-span-2 p-2" data-testid="door-preview-disclosure" role="status">
                     门高：confirmed=false（未知）。3D 全高门洞仅为非持久化预览假设；不会保存为建筑参数。
                   </p>
                 )}
@@ -1330,7 +1387,7 @@ export default function App() {
             )}
             {openingError && <p role="alert" className="mt-2 text-amber-300">{openingError}</p>}
           </div>
-          <div className="rounded-xl bg-slate-950/70 p-3">
+          <div className="rounded-xl bg-slate-50 p-3">
             <p className="text-slate-500 mb-2">历史与历史同步</p>
             <div className="grid grid-cols-2 gap-2">
               <button
@@ -1356,11 +1413,11 @@ export default function App() {
           </div>
 
           <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="rounded-xl bg-slate-950/70 p-3">
+            <div className="rounded-xl bg-slate-50 p-3">
               <p className="text-slate-500">Rooms</p>
               <p className="mt-1 text-xl font-semibold">{editableResult?.rooms.length ?? 0}</p>
             </div>
-            <div className="rounded-xl bg-slate-950/70 p-3">
+            <div className="rounded-xl bg-slate-50 p-3">
               <p className="text-slate-500">Walls</p>
               <p className="mt-1 text-xl font-semibold">{walls.length}</p>
             </div>
@@ -1373,7 +1430,7 @@ export default function App() {
               <h2 className="text-sm font-semibold">解析摘要</h2>
               <div className="mt-2 space-y-2">
                 {editableResult.rooms.slice(0, 6).map((room) => (
-                  <div key={`${room.name}-${room.type}`} className="rounded-lg bg-slate-950/70 px-3 py-2 text-xs">
+                  <div key={`${room.name}-${room.type}`} className="rounded-lg bg-slate-50 px-3 py-2 text-xs">
                     <span className="font-medium text-slate-200">{room.name}</span>
                     <span className="ml-2 text-slate-500">{room.type}</span>
                   </div>
@@ -1383,7 +1440,7 @@ export default function App() {
 
             <div>
               <h2 className="text-sm font-semibold">结构化 JSON</h2>
-              <pre className="mt-2 max-h-72 overflow-auto rounded-xl bg-black/60 p-3 text-[11px] leading-5 text-slate-300">
+              <pre className="mt-2 max-h-72 overflow-auto rounded-xl bg-slate-950 p-3 text-[11px] leading-5 text-slate-100">
                 {JSON.stringify(editableResult, null, 2)}
               </pre>
             </div>
@@ -1391,13 +1448,13 @@ export default function App() {
         )}
       </aside>
 
-      <div className="absolute bottom-4 left-[410px] right-4 top-20 grid grid-cols-[minmax(0,3fr)_minmax(280px,2fr)] gap-3">
+      <div className="workspace-grid order-1 min-h-0 flex-1 p-4 lg:pt-4">
       <section
-        className="min-w-0 rounded-2xl border border-white/10 bg-slate-950/95 p-2 shadow-2xl"
+        className="workspace-card canvas-card min-w-0 p-3"
         aria-label="2D 墙体编辑器"
       >
-        <div className="mb-2 flex items-center justify-between gap-3 text-xs text-slate-300">
-          <span>2D 墙体端点校正（原图叠加）</span>
+        <div className="mb-3 flex items-center justify-between gap-3 text-xs text-slate-600">
+          <span className="font-semibold text-slate-800">2D 结构 · 原图叠加校正</span>
           <div className="flex items-center gap-3">
             <label className="flex cursor-pointer items-center gap-1.5 text-slate-300">
               <input
@@ -1419,7 +1476,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="h-[calc(100%-32px)] overflow-hidden rounded-xl border border-white/10 bg-black/70">
+        <div className="h-[calc(100%-32px)] overflow-hidden rounded-xl border border-slate-200 bg-slate-950">
           <svg
             ref={editorRef}
             className="h-full w-full touch-none"
@@ -1579,23 +1636,23 @@ export default function App() {
       </section>
 
       <main
-        className="relative min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-slate-950 shadow-2xl"
+        className="three-card relative min-w-0 overflow-hidden"
         aria-label="3D 户型预览"
       >
         <div className="pointer-events-none absolute left-3 top-3 z-10 rounded-xl bg-black/60 px-3 py-2 text-xs text-white/75">
-          <div className="font-medium text-white/90">3D 墙体 WASM Marching Cubes</div>
-          <div className="mt-1 flex gap-3 text-[11px] text-white/60" aria-label="3D 白模实时指标">
+          <div className="font-medium text-white/90">3D 空间 · 同源可编辑预览</div>
+          <p className="mt-1 text-[11px] text-white/65">2D 结构已同步；选择门窗可在两个视图中保持一致。</p>
+          <div className="sr-only" aria-label="3D 白模实时指标">
             <span data-testid="wasm-engine-state">引擎 {wasmState}</span>
             <span data-testid="wasm-grid">Grid {wasmMetrics ? wasmMetrics.grid.join('×') : '—'}</span>
             <span data-testid="wasm-triangles">三角 {wasmMetrics?.triangleCount ?? 0}</span>
-            <span>墙体 {wallShellModel.walls.length}</span>
           </div>
           {geometryValidationError && (
             <p className="mt-1 max-w-xs text-[11px] text-amber-200" data-testid="geometry-validation-error" role="alert">
               开口校验失败，已阻止体素和 WASM 开洞：{geometryValidationError}。2D 编辑与保存仍可用。
             </p>
           )}
-          <div className="mt-1 text-[11px] text-white/60" data-testid="wasm-resource-metrics">
+          <div className="sr-only" data-testid="wasm-resource-metrics">
             {wasmMetrics
               ? `顶点 ${wasmMetrics.vertexCount} · ${wasmMetrics.elapsedMs.toFixed(1)}ms · 输入 ${wasmMetrics.inputBytes}B · 输出 ${wasmMetrics.outputBytes}B`
               : wasmFallback
@@ -1631,9 +1688,12 @@ export default function App() {
           )}
         </div>
         <div className="pointer-events-none absolute bottom-3 left-3 right-3 rounded-xl bg-black/55 px-3 py-2 text-center text-xs text-white/50">
-          WASM 网格实时跟随墙体及其局部开口；仅在引擎 active 时声明真实开洞。失败时显示 wall-shell 降级与可观察错误。
+          从已校正 2D 拉起同一空间。墙体高度为示意；精确高度、承重属性、墙厚与窗台高度需实测。
         </div>
       </main>
+      </div>
+      </div>
+      </div>
       </div>
     </div>
   )
