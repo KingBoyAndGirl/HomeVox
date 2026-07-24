@@ -77,6 +77,21 @@ describe('3D wall shell model', () => {
     expect(model.validationError).toContain(error)
   })
 
+  it('fails closed for duplicate explicit wall IDs from a loaded opening document', () => {
+    const model = buildWallShellModel(
+      [
+        { id: 'wall-a', x1: 0, y1: 0, x2: 100, y2: 0 },
+        { id: 'wall-a', x1: 100, y1: 0, x2: 100, y2: 80 },
+      ],
+      [{ id: 'door-a', kind: 'door', wallId: 'wall-a', position: 0.5, width: 20 }],
+      [],
+    )
+
+    expect(model.walls).toHaveLength(2)
+    expect(model.openings).toEqual([])
+    expect(model.validationError).toContain('wall id must be unique')
+  })
+
   it('rejects finite inputs whose normalization would overflow', () => {
     const model = buildWallShellModel(
       [{ x1: 0, y1: 0, x2: Number.MIN_VALUE, y2: 0 }],

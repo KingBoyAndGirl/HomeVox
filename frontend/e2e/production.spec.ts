@@ -145,12 +145,17 @@ test('edits wall-local openings atomically and preserves stable opening identity
   await expect(page.getByTestId('window-preview-disclosure')).toHaveText(/非持久化默认值/)
 })
 
-test('fails closed before voxel or WASM geometry when an opening is invalid', async ({ page }) => {
-  await page.goto('/?e2e=invalid-opening')
-  await expect(page.getByTestId('geometry-validation-error')).toContainText(/missing or degenerate wall/)
-  await expect(page.getByTestId('wasm-engine-state')).toHaveText(/fallback/)
-  await expect(page.getByTestId('wasm-resource-metrics')).toContainText(/fallback: invalid-input/)
-  const state = await page.evaluate(() => window.__homevoxE2E)
-  expect(state?.wasmCalls).toBe(0)
-  expect(state?.geometry.positionCount).toBe(0)
-})
+for (const [fixture, validationError] of [
+  ['invalid-opening', /missing or degenerate wall/],
+  ['duplicate-wall-id', /wall id must be unique/],
+] as const) {
+  test(`fails closed before voxel or WASM geometry for ${fixture} documents`, async ({ page }) => {
+    await page.goto(`/?e2e=${fixture}`)
+    await expect(page.getByTestId('geometry-validation-error')).toContainText(validationError)
+    await expect(page.getByTestId('wasm-engine-state')).toHaveText(/fallback/)
+    await expect(page.getByTestId('wasm-resource-metrics')).toContainText(/fallback: invalid-input/)
+    const state = await page.evaluate(() => window.__homevoxE2E)
+    expect(state?.wasmCalls).toBe(0)
+    expect(state?.geometry.positionCount).toBe(0)
+  })
+}

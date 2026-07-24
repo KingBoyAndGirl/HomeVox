@@ -42,6 +42,13 @@ function finiteWallGeometry(wall: WallSegment): boolean { return [wall.x1, wall.
 export function openingPoint(wall: WallSegment, item: ParsedOpening): {x:number;y:number}|null { if (!finite(item.position) || !finite(wall.x1) || !finite(wall.y1) || !finite(wall.x2) || !finite(wall.y2)) return null; return {x: wall.x1+(wall.x2-wall.x1)*item.position, y:wall.y1+(wall.y2-wall.y1)*item.position} }
 /** Reject invalid state before it enters persistence or geometry. */
 export function validateOpenings(walls: readonly WallSegment[], openings: readonly ParsedOpening[]): string | null {
+ const explicitWallIDs=new Set<string>()
+ for(const wall of walls) {
+  if(wall.id !== undefined) {
+   if(explicitWallIDs.has(wall.id)) return 'wall id must be unique'
+   explicitWallIDs.add(wall.id)
+  }
+ }
  const byId=new Map(walls.map((w,i)=>[w.id ?? `wall-${i+1}`,w])); const used=new Set<string>(); const perWall=new Map<string,ParsedOpening[]>()
  for(const o of openings){ if(!id(o.id)||used.has(o.id)) return 'opening id must be unique'; used.add(o.id); if((o.kind!=='door'&&o.kind!=='window')||!id(o.wallId)||!finite(o.position)||!finite(o.width)||o.width<MIN_OPENING_WIDTH||o.position<0||o.position>1) return 'opening has invalid local geometry'; const w=byId.get(o.wallId); if(!w || !finiteWallGeometry(w) || !finite(wallLength(w)) || wallLength(w)<=0) return 'opening references a missing or degenerate wall'; if(o.width>=wallLength(w)) return 'opening exceeds wall'; const half=o.width/wallLength(w)/2; if(o.position-half<0||o.position+half>1) return 'opening exceeds wall endpoint'; const list=perWall.get(o.wallId)??[]; list.push(o); perWall.set(o.wallId,list) }
  for(const [wallId,list] of perWall) { const w=byId.get(wallId)!; const sorted=[...list].sort((a,b)=>a.position!-b.position!); for(let i=1;i<sorted.length;i++){ if(sorted[i-1].position!+sorted[i-1].width!/wallLength(w)/2>sorted[i].position!-sorted[i].width!/wallLength(w)/2) return 'openings overlap on wall' } }

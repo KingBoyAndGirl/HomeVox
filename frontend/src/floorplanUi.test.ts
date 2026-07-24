@@ -85,4 +85,22 @@ describe('durable local wall openings', () => {
     ])).toContain('overlap')
     expect(validateOpenings(walls, [{ id: 'door-a', kind: 'door', wallId: 'wall-a', position: Number.NaN, width: 20 }])).toContain('invalid')
   })
+
+  it('rejects duplicate explicit wall IDs from a structurally valid loaded document', () => {
+    const loadedDocument = {
+      ...validResponse,
+      result: {
+        ...validResponse.result,
+        walls: [
+          { id: 'wall-a', x1: 0, y1: 0, x2: 100, y2: 0 },
+          { id: 'wall-a', x1: 100, y1: 0, x2: 100, y2: 80 },
+        ],
+        doors: [{ id: 'door-a', kind: 'door' as const, wallId: 'wall-a', position: 0.5, width: 20 }],
+        windows: [],
+      },
+    }
+
+    expect(isParseResponse(loadedDocument)).toBe(true)
+    expect(validateOpenings(loadedDocument.result.walls, [...loadedDocument.result.doors, ...loadedDocument.result.windows])).toContain('wall id must be unique')
+  })
 })

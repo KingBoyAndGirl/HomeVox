@@ -37,6 +37,16 @@ describe('buildWallVoxelModel', () => {
     expect(buildWallVoxelModel([{ id: 'wall-a', x1: 0, y1: 0, x2: 100, y2: 0 }], openings)).toBeNull()
   })
 
+  it('does not build a voxel/WASM input field for duplicate explicit wall IDs', () => {
+    expect(buildWallVoxelModel(
+      [
+        { id: 'wall-a', x1: 0, y1: 0, x2: 100, y2: 0 },
+        { id: 'wall-a', x1: 100, y1: 0, x2: 100, y2: 80 },
+      ],
+      [{ id: 'door-a', kind: 'door', wallId: 'wall-a', position: 0.5, width: 20 }],
+    )).toBeNull()
+  })
+
   it('subtracts a vertical wall door along the wall tangent rather than world X', () => {
     const model = buildWallVoxelModel(
       [{ id: 'vertical', x1: 0, y1: 0, x2: 0, y2: 300 }],

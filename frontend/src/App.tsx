@@ -80,6 +80,19 @@ const E2E_INVALID_OPENING_FIXTURE: ParseResponse = {
   },
 }
 
+const E2E_DUPLICATE_WALL_ID_FIXTURE: ParseResponse = {
+  ...E2E_WALL_FIXTURE,
+  result: {
+    ...E2E_WALL_FIXTURE.result,
+    walls: [
+      { id: 'wall-duplicate', x1: 80, y1: 80, x2: 520, y2: 80 },
+      { id: 'wall-duplicate', x1: 520, y1: 80, x2: 520, y2: 360 },
+    ],
+    doors: [{ id: 'door-duplicate', kind: 'door', wallId: 'wall-duplicate', position: 0.5, width: 72, source: 'fixture', confirmed: false }],
+    windows: [],
+  },
+}
+
 type ParseState = 'idle' | 'uploading' | 'ready' | 'error'
 
 type ScenePoint = {
@@ -105,6 +118,7 @@ function e2EFixture(): ParseResponse | null {
   switch (new URLSearchParams(window.location.search).get('e2e')) {
     case 'wall-fixture': return E2E_WALL_FIXTURE
     case 'invalid-opening': return E2E_INVALID_OPENING_FIXTURE
+    case 'duplicate-wall-id': return E2E_DUPLICATE_WALL_ID_FIXTURE
     default: return null
   }
 }
