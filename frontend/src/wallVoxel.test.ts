@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildWallVoxelModel, WALL_VOXEL_GRID_SIZE } from './wallVoxel'
+import type { ParsedOpening } from './floorplanUi'
 
 function voxelAt(model: NonNullable<ReturnType<typeof buildWallVoxelModel>>, xIndex: number, yIndex: number, zIndex: number): number {
   const [nx, ny] = model.dimensions
@@ -21,6 +22,19 @@ describe('buildWallVoxelModel', () => {
     expect(buildWallVoxelModel([])).toBeNull()
     expect(buildWallVoxelModel([{ x1: 0, y1: 0, x2: 0, y2: 0 }])).toBeNull()
     expect(buildWallVoxelModel([{ x1: 0, y1: 0, x2: Number.NaN, y2: 1 }])).toBeNull()
+  })
+
+  it.each<[string, ParsedOpening[]]>([
+    ['missing wall', [{ id: 'door-a', kind: 'door', wallId: 'missing', position: 0.5, width: 20 }]],
+    ['endpoint overflow', [{ id: 'door-a', kind: 'door', wallId: 'wall-a', position: 0.05, width: 20 }]],
+    ['overlap', [
+      { id: 'door-a', kind: 'door', wallId: 'wall-a', position: 0.45, width: 30 },
+      { id: 'window-a', kind: 'window', wallId: 'wall-a', position: 0.55, width: 30 },
+    ]],
+    ['under-minimum width', [{ id: 'door-a', kind: 'door', wallId: 'wall-a', position: 0.5, width: 7 }]],
+    ['oversized opening', [{ id: 'door-a', kind: 'door', wallId: 'wall-a', position: 0.5, width: 100 }]],
+  ])('does not build a voxel field for finite but illegal %s openings', (_caseName, openings) => {
+    expect(buildWallVoxelModel([{ id: 'wall-a', x1: 0, y1: 0, x2: 100, y2: 0 }], openings)).toBeNull()
   })
 
   it('subtracts a vertical wall door along the wall tangent rather than world X', () => {
@@ -81,13 +95,10 @@ describe('buildWallVoxelModel', () => {
     expect(Array.from(multipleOpenings!.data)).not.toEqual(Array.from(oneOpening!.data))
   })
 
-  it('ignores non-finite opening data without producing a non-finite field', () => {
-    const model = buildWallVoxelModel(
+  it('fails closed for non-finite opening data', () => {
+    expect(buildWallVoxelModel(
       [{ id: 'wall-a', x1: 0, y1: 0, x2: 300, y2: 0 }],
       [{ id: 'invalid', kind: 'door', wallId: 'wall-a', position: Number.NaN, width: 60 }],
-    )
-
-    expect(model).not.toBeNull()
-    expect(Array.from(model!.data).every(Number.isFinite)).toBe(true)
+    )).toBeNull()
   })
 })

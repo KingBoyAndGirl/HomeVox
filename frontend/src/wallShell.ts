@@ -1,5 +1,5 @@
 import type { WallSegment } from './floorplanEditor'
-import { openingLabel, type ParsedOpening } from './floorplanUi'
+import { openingLabel, validateOpenings, type ParsedOpening } from './floorplanUi'
 
 export const WALL_SHELL_HEIGHT = 2.8
 export const WALL_SHELL_THICKNESS = 0.18
@@ -40,6 +40,8 @@ export type WallShellModel = {
   openings: WallShellOpening[]
   floor: WallShellFloor | null
   scale: number | null
+  /** Canonical opening validation error; geometry consumers must fail closed. */
+  validationError: string | null
 }
 
 type ValidWall = WallSegment & {
@@ -63,7 +65,7 @@ function validWalls(walls: readonly WallSegment[]): ValidWall[] {
 }
 
 function emptyWallShellModel(): WallShellModel {
-  return { walls: [], openings: [], floor: null, scale: null }
+  return { walls: [], openings: [], floor: null, scale: null, validationError: null }
 }
 
 function allFinite(values: readonly number[]): boolean {
@@ -126,6 +128,14 @@ export function buildWallShellModel(
     return emptyWallShellModel()
   }
 
+  // This is the single geometry admission gate. Never normalize, voxelize, or
+  // pass an opening to WASM unless the same durable document accepted by editing
+  // and persistence passes the canonical validator.
+  const validationError = validateOpenings(walls, [...doors, ...windows])
+  if (validationError) {
+    return { walls: normalizedWalls, openings: [], floor, scale, validationError }
+  }
+
   const normalizedOpenings: WallShellOpening[] = []
   const wallByID = new Map(valid.map((wall) => [wall.id ?? `wall-${wall.sourceIndex + 1}`, wall]))
   const normalizedWallBySourceIndex = new Map(normalizedWalls.map((wall) => [wall.sourceIndex, wall]))
@@ -178,5 +188,6 @@ export function buildWallShellModel(
     openings: normalizedOpenings,
     floor,
     scale,
+    validationError: null,
   }
 }

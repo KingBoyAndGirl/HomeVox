@@ -71,6 +71,15 @@ const E2E_WALL_FIXTURE: ParseResponse = {
   },
 }
 
+const E2E_INVALID_OPENING_FIXTURE: ParseResponse = {
+  ...E2E_WALL_FIXTURE,
+  result: {
+    ...E2E_WALL_FIXTURE.result,
+    doors: [{ id: 'door-invalid', kind: 'door', wallId: 'missing-wall', position: 0.5, width: 72, source: 'fixture', confirmed: false }],
+    windows: [],
+  },
+}
+
 type ParseState = 'idle' | 'uploading' | 'ready' | 'error'
 
 type ScenePoint = {
@@ -91,8 +100,17 @@ declare global {
   }
 }
 
+function e2EFixture(): ParseResponse | null {
+  if (typeof window === 'undefined') return null
+  switch (new URLSearchParams(window.location.search).get('e2e')) {
+    case 'wall-fixture': return E2E_WALL_FIXTURE
+    case 'invalid-opening': return E2E_INVALID_OPENING_FIXTURE
+    default: return null
+  }
+}
+
 function isE2EFixtureEnabled(): boolean {
-  return typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('e2e') === 'wall-fixture'
+  return e2EFixture() !== null
 }
 
 function e2EProjectID(): string | null {
@@ -448,6 +466,10 @@ export default function App() {
   const durableDocument = useMemo<ParseResponse | null>(() => (
     parseResponse ? { ...parseResponse, result: { ...parseResponse.result, walls, doors, windows } } : null
   ), [parseResponse, walls, doors, windows])
+  const geometryValidationError = useMemo(
+    () => validateOpenings(walls, openings),
+    [walls, openings],
+  )
   const wallShellModel = useMemo(
     () => buildWallShellModel(walls, doors, windows),
     [walls, doors, windows],
@@ -483,7 +505,7 @@ export default function App() {
   useEffect(() => {
     if (!isE2EFixtureEnabled() || e2EProjectID()) return
     setSelectedFile(new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0])], 'e2e-wall-fixture.png', { type: 'image/png' }))
-    setParseResponse(E2E_WALL_FIXTURE)
+    setParseResponse(e2EFixture())
     setStatus('ready')
     setProjectName('Production E2E wall fixture')
   }, [])
@@ -562,7 +584,7 @@ export default function App() {
     if (!wallVoxelModel) {
       replaceGeometry(null)
       setWasmMetrics(null)
-      setWasmFallback('empty-model')
+      setWasmFallback(geometryValidationError ? 'invalid-input' : 'empty-model')
       setWasmState('fallback')
       return
     }
@@ -606,7 +628,7 @@ export default function App() {
     return () => {
       disposed = true
     }
-  }, [wallVoxelModel])
+  }, [geometryValidationError, wallVoxelModel])
 
   useEffect(() => {
     void refreshProjects()
@@ -1285,6 +1307,11 @@ export default function App() {
                     窗台高和窗高：confirmed={selectedOpening.confirmed === true ? 'true' : 'false（未知）'}。3D 预览使用非持久化默认值；这些尺寸不会保存为建筑参数。
                   </p>
                 )}
+                {selectedOpening.kind === 'door' && selectedOpening.confirmed !== true && (
+                  <p className="col-span-2 rounded-md border border-amber-600/60 bg-amber-950/40 p-2 text-amber-200" data-testid="door-preview-disclosure" role="status">
+                    门高：confirmed=false（未知）。3D 全高门洞仅为非持久化预览假设；不会保存为建筑参数。
+                  </p>
+                )}
               </div>
             )}
             {openingError && <p role="alert" className="mt-2 text-amber-300">{openingError}</p>}
@@ -1549,6 +1576,11 @@ export default function App() {
             <span data-testid="wasm-triangles">三角 {wasmMetrics?.triangleCount ?? 0}</span>
             <span>墙体 {wallShellModel.walls.length}</span>
           </div>
+          {geometryValidationError && (
+            <p className="mt-1 max-w-xs text-[11px] text-amber-200" data-testid="geometry-validation-error" role="alert">
+              开口校验失败，已阻止体素和 WASM 开洞：{geometryValidationError}。2D 编辑与保存仍可用。
+            </p>
+          )}
           <div className="mt-1 text-[11px] text-white/60" data-testid="wasm-resource-metrics">
             {wasmMetrics
               ? `顶点 ${wasmMetrics.vertexCount} · ${wasmMetrics.elapsedMs.toFixed(1)}ms · 输入 ${wasmMetrics.inputBytes}B · 输出 ${wasmMetrics.outputBytes}B`

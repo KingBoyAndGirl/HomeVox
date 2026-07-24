@@ -43,7 +43,7 @@ function signedBoxDistance(
  */
 export function buildWallVoxelModel(walls: readonly WallSegment[], doors: readonly ParsedOpening[] = [], windows: readonly ParsedOpening[] = []): WallVoxelModel | null {
   const shell = buildWallShellModel(walls, doors, windows)
-  if (shell.walls.length === 0) return null
+  if (shell.validationError || shell.walls.length === 0) return null
 
   const minX = Math.min(...shell.walls.map((wall) => wall.x - wall.length / 2))
   const maxX = Math.max(...shell.walls.map((wall) => wall.x + wall.length / 2))
