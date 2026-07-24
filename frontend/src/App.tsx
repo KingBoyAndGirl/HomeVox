@@ -295,25 +295,36 @@ function Scene({ model, wasmGeometry, wasmActive, selectedWallID, selectedOpenin
       )}
 
       {model.walls.map((wall) => (
-        <mesh
-          key={`wall-shell-${wall.id}`}
-          position={[wall.x, wall.height / 2, wall.z]}
-          rotation={[0, wall.rotationY, 0]}
-          castShadow
-          receiveShadow
-          userData={{ wallId: wall.id }}
-          data-testid={`three-wall-${wall.id}`}
-          onPointerDown={(event) => { event.stopPropagation(); onSelectWall(wall.id) }}
-          onClick={(event) => { event.stopPropagation(); onSelectWall(wall.id) }}
-        >
-          <boxGeometry args={[wall.length, wall.height, wall.thickness]} />
-          <meshStandardMaterial
-            color={selectedWallID === wall.id ? '#facc15' : '#e2e8f0'}
-            roughness={0.72}
-            transparent={wasmActive && selectedWallID !== wall.id}
-            opacity={wasmActive && selectedWallID !== wall.id ? 0.08 : 1}
-          />
-        </mesh>
+        <group key={`wall-shell-${wall.id}`}>
+          <mesh
+            position={[wall.x, wall.height / 2, wall.z]}
+            rotation={[0, wall.rotationY, 0]}
+            castShadow
+            receiveShadow
+            userData={{ wallId: wall.id }}
+            onPointerDown={(event) => { event.stopPropagation(); onSelectWall(wall.id) }}
+            onClick={(event) => { event.stopPropagation(); onSelectWall(wall.id) }}
+          >
+            <boxGeometry args={[wall.length, wall.height, wall.thickness]} />
+            <meshStandardMaterial
+              color={selectedWallID === wall.id ? '#facc15' : '#e2e8f0'}
+              roughness={0.72}
+              transparent={wasmActive && selectedWallID !== wall.id}
+              opacity={wasmActive && selectedWallID !== wall.id ? 0.08 : 1}
+            />
+          </mesh>
+          <Html position={[wall.x, wall.height + 0.32, wall.z]} center>
+            <button
+              type="button"
+              data-testid={`three-wall-${wall.id}`}
+              aria-label={`3D 选择墙体 ${wall.id}`}
+              aria-pressed={selectedWallID === wall.id}
+              data-selected={selectedWallID === wall.id ? 'true' : 'false'}
+              className="h-4 w-4 rounded border border-white bg-slate-950/45 p-0 shadow"
+              onClick={() => onSelectWall(wall.id)}
+            />
+          </Html>
+        </group>
       ))}
 
       {model.openings.map((opening) => {
@@ -489,6 +500,7 @@ export default function App() {
     () => validateOpenings(walls, openings),
     [walls, openings],
   )
+  const canOpenLinkedWorkspace = Boolean(durableDocument) && !geometryValidationError
   const wallShellModel = useMemo(
     () => buildWallShellModel(walls, doors, windows),
     [walls, doors, windows],
@@ -1016,6 +1028,13 @@ export default function App() {
     setOpeningError('')
   }
 
+  function selectOpening(openingID: string) {
+    const opening = openings.find((item) => item.id === openingID)
+    setSelectedOpeningID(openingID)
+    setSelectedWallID(opening?.wallId ?? null)
+    setOpeningError('')
+  }
+
   function handleWallPointerDown(event: PointerEvent<SVGLineElement>, wallID: string) {
     event.preventDefault()
     event.stopPropagation()
@@ -1197,7 +1216,7 @@ export default function App() {
             })}
           </g>
           <g aria-label="墙体透明命中层" fill="none" stroke="transparent" strokeLinecap="round">
-            {walls.map((wall, wallIndex) => <line key={`hit-${wall.id ?? wallIndex}`} data-testid={`wall-hit-${wall.id ?? wallIndex}`} x1={wall.x1} y1={wall.y1} x2={wall.x2} y2={wall.y2} strokeWidth={wallHitStroke} onPointerDown={(event) => wall.id && handleWallPointerDown(event, wall.id)} style={{ cursor: 'pointer' }} />)}
+            {walls.map((wall, wallIndex) => <line key={`hit-${wall.id ?? wallIndex}`} data-testid={`wall-hit-${wall.id ?? wallIndex}`} data-selected={selectedWallID === wall.id ? 'true' : 'false'} x1={wall.x1} y1={wall.y1} x2={wall.x2} y2={wall.y2} strokeWidth={wallHitStroke} onPointerDown={(event) => wall.id && handleWallPointerDown(event, wall.id)} style={{ cursor: 'pointer' }} />)}
           </g>
           <g aria-label="端点可视层" pointerEvents="none">
             {walls.flatMap((wall, wallIndex) => ([{ endpoint: 'start' as const, x: wall.x1, y: wall.y1 }, { endpoint: 'end' as const, x: wall.x2, y: wall.y2 }].map((handle) => {
@@ -1230,7 +1249,7 @@ export default function App() {
       </div>
       <div className="h-full w-full">
         {webGLAvailable ? <Canvas camera={{ position: [8, 7, 8], fov: 50 }} shadows gl={{ antialias: true, preserveDrawingBuffer: true }} onCreated={setThreeRenderer}>
-          <Suspense fallback={null}><Scene model={wallShellModel} wasmGeometry={wasmGeometry} wasmActive={wasmState === 'active'} selectedWallID={selectedWallID} selectedOpeningID={selectedOpeningID} onSelectWall={selectWall} onSelectOpening={(openingID) => { setSelectedOpeningID(openingID); setOpeningError('') }} /><OrbitControls makeDefault /></Suspense>
+          <Suspense fallback={null}><Scene model={wallShellModel} wasmGeometry={wasmGeometry} wasmActive={wasmState === 'active'} selectedWallID={selectedWallID} selectedOpeningID={selectedOpeningID} onSelectWall={selectWall} onSelectOpening={selectOpening} /><OrbitControls makeDefault /></Suspense>
         </Canvas> : <div className="flex h-full w-full items-center justify-center px-8 text-center" role="status" aria-label="3D 渲染不可用"><div className="max-w-sm rounded-2xl border border-amber-400/25 bg-amber-950/30 px-5 py-4 text-sm leading-6 text-amber-100">当前浏览器无法显示 3D 预览。请在启用 WebGL 的浏览器中打开；2D 校正仍可继续。</div></div>}
       </div>
       <div className="pointer-events-none absolute bottom-3 left-3 right-3 rounded-xl bg-black/55 px-3 py-2 text-center text-xs text-white/50">墙体高度为示意；精确高度、承重属性、墙厚与窗台高度需实测。</div>
@@ -1261,14 +1280,14 @@ export default function App() {
 
   return (
     <div className="homevox-app"><div className="homevox-layout min-h-screen lg:grid lg:grid-cols-[232px_minmax(0,1fr)]">
-      <aside className="product-sidebar flex flex-col px-4 py-6"><div className="mb-8 px-2"><p className="text-xs font-semibold tracking-[0.22em] text-indigo-200">HOMEVOX</p><h1 className="mt-2 text-xl font-bold">筑居</h1><p className="mt-2 text-xs leading-5 text-indigo-100/75">从真实户型图到可编辑空间</p></div><nav className="space-y-2" aria-label="产品步骤">{PRODUCT_STEPS.map((step) => { const unlocked = canOpenStep(step.id, Boolean(durableDocument)); return <button key={step.id} className="product-step flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium disabled:cursor-not-allowed" type="button" data-active={activeStep === step.id} data-locked={!unlocked} aria-current={activeStep === step.id ? 'step' : undefined} disabled={!unlocked} onClick={() => setActiveStep(step.id)}><span className="step-dot">{step.id}</span><span>{step.label}</span></button> })}</nav><div className="mt-auto rounded-xl border border-white/10 bg-white/8 p-3 text-xs leading-5 text-indigo-100/80">空间设计沟通工具，不是施工 CAD。未知建筑属性会保持未知，需现场实测。</div></aside>
+      <aside className="product-sidebar flex flex-col px-4 py-6"><div className="mb-8 px-2"><p className="text-xs font-semibold tracking-[0.22em] text-indigo-200">HOMEVOX</p><h1 className="mt-2 text-xl font-bold">筑居</h1><p className="mt-2 text-xs leading-5 text-indigo-100/75">从真实户型图到可编辑空间</p></div><nav className="space-y-2" aria-label="产品步骤">{PRODUCT_STEPS.map((step) => { const unlocked = canOpenStep(step.id, Boolean(durableDocument)) && (step.id !== 5 || canOpenLinkedWorkspace); return <button key={step.id} className="product-step flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium disabled:cursor-not-allowed" type="button" data-active={activeStep === step.id} data-locked={!unlocked} aria-current={activeStep === step.id ? 'step' : undefined} disabled={!unlocked} onClick={() => setActiveStep(step.id)}><span className="step-dot">{step.id}</span><span>{step.label}</span></button> })}</nav><div className="mt-auto rounded-xl border border-white/10 bg-white/8 p-3 text-xs leading-5 text-indigo-100/80">空间设计沟通工具，不是施工 CAD。未知建筑属性会保持未知，需现场实测。</div></aside>
       <div className="flex min-h-screen min-w-0 flex-col"><header className="product-topbar flex min-h-[72px] items-center justify-between border-b border-slate-200 bg-white px-5 lg:px-8"><div><p className="text-xs font-medium text-violet-600">步骤 {activeStep} / 6</p><h2 className="mt-1 text-lg font-bold text-slate-900">{PRODUCT_STEPS[activeStep - 1].label}</h2></div><div className="flex items-center gap-2">{durableDocument && <span className="status-chip px-3 py-1.5 text-xs font-medium">同一份空间数据</span>}{(activeStep === 1 || activeStep === 3 || activeStep === 5) && <button className="rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50" type="button" disabled={activeStep === 1 ? !selectedFile : !durableDocument} onClick={goNext}>{activeStep === 1 ? '继续到 AI 识别' : '继续'}</button>}</div></header>
       <div className="min-h-0 flex-1 p-4">
         {activeStep === 1 && <section className="workspace-card mx-auto max-w-2xl p-6 text-slate-800"><h3 className="text-xl font-semibold">导入真实户型图</h3><p className="mt-2 text-sm text-slate-500">从你的图纸开始，不套用示意户型。</p><label className="mt-6 block cursor-pointer rounded-xl border border-dashed border-slate-400 bg-slate-50 p-5 text-sm hover:border-violet-500"><span className="block font-medium">选择户型图</span><span className="mt-1 block text-xs text-slate-500">支持 PNG、JPEG、GIF、WebP；后端限制 10 MiB</span><input className="mt-3 block w-full text-xs" type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={(event) => handleFileChange(event.target.files?.[0] ?? null)} /></label>{previewURL && <img className="mt-4 max-h-80 w-full rounded-xl object-contain bg-slate-50" src={previewURL} alt="上传户型图预览" />}</section>}
         {activeStep === 2 && <section className="workspace-card mx-auto max-w-2xl p-6 text-slate-800"><h3 className="text-xl font-semibold">AI 识别</h3><p className="mt-2 text-sm text-slate-500">识别完成后才会打开可校正的同源 2D 数据。</p><button className="mt-6 w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50" type="button" disabled={status === 'uploading' || !selectedFile} onClick={handleParse}>{status === 'uploading' ? 'AI 识别中…' : '开始 AI 识别'}</button><div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm"><span className="text-slate-500">识别状态：</span>{status === 'ready' ? '解析完成' : status === 'uploading' ? '解析中' : status === 'error' ? '失败' : '等待开始'}{error && <p role="alert" className="mt-2 text-red-700">{error}</p>}</div>{status === 'error' && selectedFile && <button type="button" className="mt-3 rounded-lg border border-violet-300 px-3 py-2 text-sm text-violet-700" onClick={handleParse}>重试 AI 识别</button>}</section>}
         {activeStep === 3 && <div className="workspace-grid product-workspace">{twoDPanel}{editorInspector}</div>}
-        {activeStep === 4 && <section className="mx-auto max-w-5xl"><div className="mb-4 flex items-center justify-between rounded-xl bg-white p-4 shadow-sm"><div><h3 className="font-semibold text-slate-900">确认 3D 空间</h3><p className="mt-1 text-sm text-slate-500">这是同一份已校正 2D 数据生成的真实 3D 预览。</p></div><div className="flex gap-2"><button type="button" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" onClick={() => setActiveStep(3)}>返回 2D 校正</button><button type="button" className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white" onClick={() => setActiveStep(5)}>完成并打开 3D</button></div></div>{threeDPanel}</section>}
-        {activeStep === 5 && <div className="workspace-grid product-workspace product-workspace-linked">{twoDPanel}{threeDPanel}{editorInspector}</div>}
+        {activeStep === 4 && <section className="mx-auto max-w-5xl"><div className="mb-4 flex items-center justify-between rounded-xl bg-white p-4 shadow-sm"><div><h3 className="font-semibold text-slate-900">确认 3D 空间</h3><p className="mt-1 text-sm text-slate-500">这是同一份已校正 2D 数据生成的真实 3D 预览。</p></div><div className="flex gap-2"><button type="button" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" onClick={() => setActiveStep(3)}>返回 2D 校正</button>{canOpenLinkedWorkspace && <button type="button" className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white" onClick={() => setActiveStep(5)}>完成并打开 3D</button>}</div></div>{canOpenLinkedWorkspace ? threeDPanel : <div className="workspace-card p-6 text-slate-800" role="alert"><h4 className="text-lg font-semibold">当前开口数据无法生成 3D</h4><p className="mt-2 text-sm text-slate-600">请返回 2D 校正后修复数据，再重新生成 3D。</p><button type="button" className="mt-4 rounded-lg border border-slate-300 px-3 py-2 text-sm" onClick={() => setActiveStep(3)}>返回 2D 校正</button></div>}</section>}
+        {activeStep === 5 && (canOpenLinkedWorkspace ? <div className="workspace-grid product-workspace product-workspace-linked">{twoDPanel}{threeDPanel}{editorInspector}</div> : <section className="workspace-card mx-auto max-w-2xl p-6 text-slate-800" role="alert"><h3 className="text-lg font-semibold">当前开口数据无法生成 3D</h3><p className="mt-2 text-sm text-slate-600">联动工作台已关闭，请先返回 2D 校正。</p><button type="button" className="mt-4 rounded-lg border border-slate-300 px-3 py-2 text-sm" onClick={() => setActiveStep(3)}>返回 2D 校正</button></section>)}
         {activeStep === 6 && savePanel}
       </div></div>
     </div></div>
