@@ -1260,6 +1260,11 @@ export default function App() {
                   <input aria-label="开口宽度" data-testid="opening-width" className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100" type="number" min={MIN_OPENING_WIDTH} step="1" value={selectedOpening.width ?? ''} onChange={(event) => { const width = Number(event.target.value); if (Number.isFinite(width)) commitOpeningPatch(selectedOpening.id!, { width }) }} />
                 </label>
                 <button type="button" className="self-end rounded-lg bg-red-700 px-3 py-2" onClick={handleDeleteOpening}>删除</button>
+                {selectedOpening.kind === 'window' && (
+                  <p className="col-span-2 rounded-md border border-amber-600/60 bg-amber-950/40 p-2 text-amber-200" data-testid="window-preview-disclosure" role="status">
+                    窗台高和窗高：confirmed={selectedOpening.confirmed === true ? 'true' : 'false（未知）'}。3D 预览使用非持久化默认值；这些尺寸不会保存为建筑参数。
+                  </p>
+                )}
               </div>
             )}
             {openingError && <p role="alert" className="mt-2 text-amber-300">{openingError}</p>}

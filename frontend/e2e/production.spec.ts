@@ -85,6 +85,11 @@ test('edits wall-local openings atomically and preserves stable opening identity
   await page.goto('/?e2e=wall-fixture')
   await expect(page.getByTestId('wasm-engine-state')).toHaveText(/active/)
 
+  await page.getByTestId('opening-handle-window-1').click()
+  await expect.poll(() => page.evaluate(() => window.__homevoxE2E?.selectedOpeningId)).toBe('window-1')
+  await expect(page.getByTestId('window-preview-disclosure')).toHaveText(/confirmed=false（未知）/)
+  await expect(page.getByTestId('window-preview-disclosure')).toHaveText(/非持久化默认值/)
+
   await page.getByTestId('opening-handle-door-1').click()
   await expect.poll(() => page.evaluate(() => window.__homevoxE2E?.selectedOpeningId)).toBe('door-1')
   await page.getByTestId('opening-width').fill('80')
@@ -112,4 +117,7 @@ test('edits wall-local openings atomically and preserves stable opening identity
   await expect(page.getByText('项目已加载')).toBeVisible()
   await page.getByTestId('opening-handle-door-1').click()
   await expect(page.getByTestId('opening-width')).toHaveValue('80')
+  await page.getByTestId('opening-handle-window-1').click()
+  await expect(page.getByTestId('window-preview-disclosure')).toHaveText(/confirmed=false（未知）/)
+  await expect(page.getByTestId('window-preview-disclosure')).toHaveText(/非持久化默认值/)
 })
