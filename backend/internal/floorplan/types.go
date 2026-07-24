@@ -11,11 +11,11 @@ type Room struct {
 	Name              string  `json:"name"`
 	Type              string  `json:"type"`
 	ApproximateBounds Bounds  `json:"approximate_bounds"`
-	AreaRatio         float64 `json:"area_ratio,omitempty"`
+	AreaRatio         float64 `json:"area_ratio"`
 }
 
 type Segment struct {
-	ID string  `json:"id,omitempty"`
+	ID string  `json:"id"`
 	X1 float64 `json:"x1"`
 	Y1 float64 `json:"y1"`
 	X2 float64 `json:"x2"`
@@ -26,12 +26,12 @@ type Segment struct {
 // the owning wall start. Confirmed=false explicitly preserves unknown building
 // parameters rather than fabricating measured dimensions.
 type Opening struct {
-	ID        string  `json:"id,omitempty"`
-	Kind      string  `json:"kind,omitempty"`
-	WallID    string  `json:"wallId,omitempty"`
-	Position  float64 `json:"position,omitempty"`
-	Width     float64 `json:"width,omitempty"`
-	Source    string  `json:"source,omitempty"`
+	ID        string  `json:"id"`
+	Kind      string  `json:"kind"`
+	WallID    string  `json:"wallId"`
+	Position  float64 `json:"position"`
+	Width     float64 `json:"width"`
+	Source    string  `json:"source"`
 	Confirmed bool    `json:"confirmed"`
 	Type      string  `json:"type,omitempty"`
 	X         float64 `json:"x,omitempty"`
@@ -42,14 +42,14 @@ type Opening struct {
 
 type Scale struct {
 	Unit        string  `json:"unit"`
-	PixelToUnit float64 `json:"pixel_to_unit,omitempty"`
+	PixelToUnit float64 `json:"pixel_to_unit"`
 }
 
 type Metadata struct {
 	Source      string  `json:"source"`
-	Confidence  float64 `json:"confidence,omitempty"`
-	ImageWidth  int     `json:"image_width,omitempty"`
-	ImageHeight int     `json:"image_height,omitempty"`
+	Confidence  float64 `json:"confidence"`
+	ImageWidth  int     `json:"image_width"`
+	ImageHeight int     `json:"image_height"`
 }
 
 type ParseResult struct {

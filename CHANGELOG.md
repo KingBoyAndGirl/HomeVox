@@ -6,6 +6,8 @@
 
 - 完成 Issue #17 的受控 Vision 合同闭环：生产 Go multipart parse API 以 OpenAI-compatible `/chat/completions` 多模态请求处理浏览器图片，并对空/非 JSON envelope、schema-invalid opening geometry、timeout、429 与 5xx fail-closed；上游错误正文不会回显给浏览器。
 - AI 解析不再把缺少 `wallId`、局部 `position` 或 `width` 的 opening 推断为已确认结构；这些候选直接拒绝，避免最近墙体或预览默认值污染 durable document。
+- AI canonical 输出现在要求完整且唯一的 JSON object：拒绝未知字段、重复键、缺失或部分嵌套字段、`null`、错误 JSON 类型、legacy opening 字段及尾随第二个 JSON 值；parse 路径不再生成 ID、kind、source 或空集合。
+- 生产浏览器验收通过仅存在于隔离 runner 的 restart control 显式 SIGTERM 并回收 Go server 子进程，再以相同 PostgreSQL/MinIO 状态启动新的 server process；重载断言 source-image 字节、canonical 墙体/门窗（含 wall-local 字段）和 WASM geometry fingerprint 保持一致。
 
 ### Verification
 

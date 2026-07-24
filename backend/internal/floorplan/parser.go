@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"strings"
 
@@ -29,7 +30,7 @@ func (p *Parser) Parse(ctx context.Context, imageDataURL string) (ParseResult, e
 	messages := []ai.Message{
 		{
 			Role:    "system",
-			Content: "You extract residential floor-plan structure. Return only one strict JSON object matching this schema: {rooms:[{name,type,approximate_bounds:{x1,y1,x2,y2},area_ratio}], walls:[{id,x1,y1,x2,y2}], doors:[{id,kind,wallId,position,width,confirmed}], windows:[{id,kind,wallId,position,width,confirmed}], scale:{unit,pixel_to_unit}, metadata:{source,confidence,image_width,image_height}}. Use pixel coordinates when exact scale is unknown. Never infer or fabricate wall associations, opening widths, architectural dimensions, scale, orientation, height, thickness, or load-bearing status.",
+			Content: "You extract residential floor-plan structure. Return only one strict JSON object matching this schema: {rooms:[{name,type,approximate_bounds:{x1,y1,x2,y2},area_ratio}], walls:[{id,x1,y1,x2,y2}], doors:[{id,kind,wallId,position,width,source,confirmed}], windows:[{id,kind,wallId,position,width,source,confirmed}], scale:{unit,pixel_to_unit}, metadata:{source,confidence,image_width,image_height}}. Every listed field is required, no additional fields are accepted, and arrays may be empty. Use pixel coordinates when exact scale is unknown. Never infer or fabricate wall associations, opening widths, architectural dimensions, scale, orientation, height, thickness, or load-bearing status.",
 		},
 		{
 			Role: "user",
@@ -49,49 +50,14 @@ func (p *Parser) Parse(ctx context.Context, imageDataURL string) (ParseResult, e
 		return ParseResult{}, err
 	}
 
-	var result ParseResult
-	if err := json.Unmarshal([]byte(content), &result); err != nil {
-		return ParseResult{}, fmt.Errorf("decode ai parse result: %w", err)
+	result, err := decodeCanonicalParseResult(content)
+	if err != nil {
+		return ParseResult{}, err
 	}
-	result = normalizeParseResult(result)
 	if err := validateParsedResult(result); err != nil {
 		return ParseResult{}, err
 	}
 	return result, nil
-}
-
-func normalizeParseResult(result ParseResult) ParseResult {
-	if result.Rooms == nil {
-		result.Rooms = []Room{}
-	}
-	if result.Walls == nil {
-		result.Walls = []Segment{}
-	}
-	if result.Doors == nil {
-		result.Doors = []Opening{}
-	}
-	if result.Windows == nil {
-		result.Windows = []Opening{}
-	}
-	for i := range result.Walls {
-		if result.Walls[i].ID == "" {
-			result.Walls[i].ID = fmt.Sprintf("wall-%d", i+1)
-		}
-	}
-	normalize := func(items []Opening, kind string) {
-		for i := range items {
-			if items[i].ID == "" {
-				items[i].ID = fmt.Sprintf("%s-%d", kind, i+1)
-			}
-			items[i].Kind = kind
-			if items[i].Source == "" {
-				items[i].Source = "ai"
-			}
-		}
-	}
-	normalize(result.Doors, "door")
-	normalize(result.Windows, "window")
-	return result
 }
 
 func validateParsedResult(result ParseResult) error {
@@ -117,7 +83,7 @@ func validateParsedResult(result ParseResult) error {
 	seen := map[string]struct{}{}
 	openings := append(append([]Opening{}, result.Doors...), result.Windows...)
 	for i, opening := range openings {
-		if opening.ID == "" || opening.WallID == "" || opening.Width <= 0 || opening.Position < 0 || opening.Position > 1 || !finite(opening.Width) || !finite(opening.Position) {
+		if opening.ID == "" || (opening.Kind != "door" && opening.Kind != "window") || opening.WallID == "" || strings.TrimSpace(opening.Source) == "" || opening.Width <= 0 || opening.Position < 0 || opening.Position > 1 || !finite(opening.Width) || !finite(opening.Position) {
 			return fmt.Errorf("opening[%d] lacks valid local wall geometry", i)
 		}
 		wall, ok := wallIDs[opening.WallID]
@@ -138,6 +104,273 @@ func validateParsedResult(result ParseResult) error {
 }
 
 func finite(value float64) bool { return !math.IsNaN(value) && !math.IsInf(value, 0) }
+
+// decodeCanonicalParseResult validates raw model output before decoding it.
+// encoding/json otherwise silently accepts unknown and duplicate object keys,
+// and cannot distinguish omitted scalar values from their Go zero values.
+func decodeCanonicalParseResult(content string) (ParseResult, error) {
+	decoder := json.NewDecoder(strings.NewReader(content))
+	if err := validateJSONValue(decoder, true); err != nil {
+		return ParseResult{}, fmt.Errorf("decode ai parse result: %w", err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return ParseResult{}, fmt.Errorf("decode ai parse result: trailing JSON value")
+		}
+		return ParseResult{}, fmt.Errorf("decode ai parse result: trailing content: %w", err)
+	}
+
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(content), &root); err != nil {
+		return ParseResult{}, fmt.Errorf("decode ai parse result: %w", err)
+	}
+	if err := validateObject(root, map[string]rawValidator{
+		"rooms":    validateRooms,
+		"walls":    validateWalls,
+		"doors":    validateDoors("door"),
+		"windows":  validateDoors("window"),
+		"scale":    validateScale,
+		"metadata": validateMetadata,
+	}); err != nil {
+		return ParseResult{}, fmt.Errorf("decode ai parse result: %w", err)
+	}
+
+	var result ParseResult
+	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		return ParseResult{}, fmt.Errorf("decode ai parse result: %w", err)
+	}
+	return result, nil
+}
+
+type rawValidator func(json.RawMessage) error
+
+func validateJSONValue(decoder *json.Decoder, root bool) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delim, isDelim := token.(json.Delim)
+	if !isDelim {
+		if root {
+			return fmt.Errorf("top-level value must be an object")
+		}
+		return nil
+	}
+	switch delim {
+	case '{':
+		seen := map[string]struct{}{}
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return fmt.Errorf("object key is not a string")
+			}
+			if _, duplicate := seen[key]; duplicate {
+				return fmt.Errorf("duplicate key %q", key)
+			}
+			seen[key] = struct{}{}
+			if err := validateJSONValue(decoder, false); err != nil {
+				return err
+			}
+		}
+		end, err := decoder.Token()
+		if err != nil || end != json.Delim('}') {
+			return fmt.Errorf("invalid object termination")
+		}
+	case '[':
+		for decoder.More() {
+			if err := validateJSONValue(decoder, false); err != nil {
+				return err
+			}
+		}
+		end, err := decoder.Token()
+		if err != nil || end != json.Delim(']') {
+			return fmt.Errorf("invalid array termination")
+		}
+	default:
+		return fmt.Errorf("invalid JSON delimiter")
+	}
+	return nil
+}
+
+func validateObject(object map[string]json.RawMessage, fields map[string]rawValidator) error {
+	if len(object) != len(fields) {
+		for key := range object {
+			if _, known := fields[key]; !known {
+				return fmt.Errorf("unknown field %q", key)
+			}
+		}
+		for key := range fields {
+			if _, present := object[key]; !present {
+				return fmt.Errorf("missing required field %q", key)
+			}
+		}
+		return fmt.Errorf("invalid object field count")
+	}
+	for key, validator := range fields {
+		value, present := object[key]
+		if !present {
+			return fmt.Errorf("missing required field %q", key)
+		}
+		if err := validator(value); err != nil {
+			return fmt.Errorf("field %q: %w", key, err)
+		}
+	}
+	return nil
+}
+
+func decodeObject(raw json.RawMessage) (map[string]json.RawMessage, error) {
+	if string(raw) == "null" {
+		return nil, fmt.Errorf("must be an object, not null")
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil || object == nil {
+		return nil, fmt.Errorf("must be an object")
+	}
+	return object, nil
+}
+
+func validateArray(raw json.RawMessage, item rawValidator) error {
+	if string(raw) == "null" {
+		return fmt.Errorf("must be an array, not null")
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil || items == nil {
+		return fmt.Errorf("must be an array")
+	}
+	for i, value := range items {
+		if err := item(value); err != nil {
+			return fmt.Errorf("item[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func validateString(raw json.RawMessage) error {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	if _, ok := value.(string); !ok {
+		return fmt.Errorf("must be a string")
+	}
+	return nil
+}
+
+func validateBoolean(raw json.RawMessage) error {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	if _, ok := value.(bool); !ok {
+		return fmt.Errorf("must be a boolean")
+	}
+	return nil
+}
+
+func validateNumber(raw json.RawMessage) error {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	if _, ok := value.(float64); !ok {
+		return fmt.Errorf("must be a number")
+	}
+	return nil
+}
+
+func validateInteger(raw json.RawMessage) error {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	number, ok := value.(float64)
+	if !ok || math.Trunc(number) != number {
+		return fmt.Errorf("must be an integer")
+	}
+	return nil
+}
+
+func validateRooms(raw json.RawMessage) error {
+	return validateArray(raw, func(item json.RawMessage) error {
+		object, err := decodeObject(item)
+		if err != nil {
+			return err
+		}
+		return validateObject(object, map[string]rawValidator{
+			"name":               validateString,
+			"type":               validateString,
+			"approximate_bounds": validateBounds,
+			"area_ratio":         validateNumber,
+		})
+	})
+}
+
+func validateBounds(raw json.RawMessage) error {
+	object, err := decodeObject(raw)
+	if err != nil {
+		return err
+	}
+	return validateObject(object, map[string]rawValidator{
+		"x1": validateNumber, "y1": validateNumber, "x2": validateNumber, "y2": validateNumber,
+	})
+}
+
+func validateWalls(raw json.RawMessage) error {
+	return validateArray(raw, func(item json.RawMessage) error {
+		object, err := decodeObject(item)
+		if err != nil {
+			return err
+		}
+		return validateObject(object, map[string]rawValidator{
+			"id": validateString, "x1": validateNumber, "y1": validateNumber, "x2": validateNumber, "y2": validateNumber,
+		})
+	})
+}
+
+func validateDoors(expectedKind string) rawValidator {
+	return func(raw json.RawMessage) error {
+		return validateArray(raw, func(item json.RawMessage) error {
+			object, err := decodeObject(item)
+			if err != nil {
+				return err
+			}
+			if err := validateObject(object, map[string]rawValidator{
+				"id": validateString, "kind": validateString, "wallId": validateString, "position": validateNumber,
+				"width": validateNumber, "source": validateString, "confirmed": validateBoolean,
+			}); err != nil {
+				return err
+			}
+			var kind string
+			if err := json.Unmarshal(object["kind"], &kind); err != nil || kind != expectedKind {
+				return fmt.Errorf("kind must be %q", expectedKind)
+			}
+			return nil
+		})
+	}
+}
+
+func validateScale(raw json.RawMessage) error {
+	object, err := decodeObject(raw)
+	if err != nil {
+		return err
+	}
+	return validateObject(object, map[string]rawValidator{"unit": validateString, "pixel_to_unit": validateNumber})
+}
+
+func validateMetadata(raw json.RawMessage) error {
+	object, err := decodeObject(raw)
+	if err != nil {
+		return err
+	}
+	return validateObject(object, map[string]rawValidator{
+		"source": validateString, "confidence": validateNumber, "image_width": validateInteger, "image_height": validateInteger,
+	})
+}
 
 func firstChoiceContent(response map[string]any) (string, error) {
 	choices, ok := response["choices"].([]any)
