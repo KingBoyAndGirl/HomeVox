@@ -44,4 +44,50 @@ describe('buildWallVoxelModel', () => {
     // x=z≈2.01 is inside the diagonal wall-local door span but outside a world-axis cut.
     expect(voxelAt(model!, 11, 7, 11)).toBeLessThan(0)
   })
+
+  it('cuts a finite window opening from the wall field rather than only adding a marker', () => {
+    const walls = [{ id: 'wall-a', x1: 0, y1: 0, x2: 300, y2: 0 }]
+    const solid = buildWallVoxelModel(walls)
+    const withWindow = buildWallVoxelModel(
+      walls,
+      [],
+      [{ id: 'window-a', kind: 'window', wallId: 'wall-a', position: 0.5, width: 70, confirmed: false }],
+    )
+
+    expect(solid).not.toBeNull()
+    expect(withWindow).not.toBeNull()
+    expect(Array.from(withWindow!.data).every(Number.isFinite)).toBe(true)
+    expect(Array.from(withWindow!.data)).not.toEqual(Array.from(solid!.data))
+  })
+
+  it('keeps multiple legal near-end openings finite while changing the generated field', () => {
+    const walls = [{ id: 'wall-a', x1: 0, y1: 0, x2: 300, y2: 0 }]
+    const oneOpening = buildWallVoxelModel(
+      walls,
+      [{ id: 'door-a', kind: 'door', wallId: 'wall-a', position: 0.15, width: 60, confirmed: false }],
+    )
+    const multipleOpenings = buildWallVoxelModel(
+      walls,
+      [
+        { id: 'door-a', kind: 'door', wallId: 'wall-a', position: 0.15, width: 60, confirmed: false },
+        { id: 'door-b', kind: 'door', wallId: 'wall-a', position: 0.85, width: 60, confirmed: false },
+      ],
+      [{ id: 'window-a', kind: 'window', wallId: 'wall-a', position: 0.5, width: 60, confirmed: false }],
+    )
+
+    expect(oneOpening).not.toBeNull()
+    expect(multipleOpenings).not.toBeNull()
+    expect(Array.from(multipleOpenings!.data).every(Number.isFinite)).toBe(true)
+    expect(Array.from(multipleOpenings!.data)).not.toEqual(Array.from(oneOpening!.data))
+  })
+
+  it('ignores non-finite opening data without producing a non-finite field', () => {
+    const model = buildWallVoxelModel(
+      [{ id: 'wall-a', x1: 0, y1: 0, x2: 300, y2: 0 }],
+      [{ id: 'invalid', kind: 'door', wallId: 'wall-a', position: Number.NaN, width: 60 }],
+    )
+
+    expect(model).not.toBeNull()
+    expect(Array.from(model!.data).every(Number.isFinite)).toBe(true)
+  })
 })

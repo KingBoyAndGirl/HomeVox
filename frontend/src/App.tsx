@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { Canvas, type RootState } from '@react-three/fiber'
-import { Grid, OrbitControls } from '@react-three/drei'
+import { Grid, Html, OrbitControls } from '@react-three/drei'
 import type { BufferGeometry } from 'three'
 import {
   type EndpointRef,
@@ -84,7 +84,7 @@ declare global {
       generation: number
       wasmCalls: number
       metrics: MarchingCubesMetrics | null
-      geometry: { positionCount: number; normalCount: number; finite: boolean }
+      geometry: { positionCount: number; normalCount: number; finite: boolean; fingerprint: number }
       currentProjectId: string | null
       selectedOpeningId: string | null
     }
@@ -277,21 +277,37 @@ function Scene({ model, wasmGeometry, wasmActive, selectedOpeningID, onSelectOpe
         const markerHeight = isDoor ? 3.2 : 3.7
         const markerRadius = isDoor ? 0.28 : 0.24
         return (
-          <mesh
-            key={opening.id}
-            data-testid={`three-opening-${opening.id}`}
-            position={[opening.x, markerHeight, opening.z]}
-            renderOrder={10}
-            userData={{ openingId: opening.id, openingKind: opening.kind, label: opening.label }}
-            onClick={(event) => { event.stopPropagation(); onSelectOpening(opening.id) }}
-          >
-            <sphereGeometry args={[markerRadius, 20, 14]} />
-            <meshBasicMaterial
-              color={selectedOpeningID === opening.id ? '#facc15' : isDoor ? '#f97316' : '#38bdf8'}
-              depthTest={false}
-              toneMapped={false}
-            />
-          </mesh>
+          <group key={opening.id}>
+            <mesh
+              data-testid={`three-opening-${opening.id}`}
+              position={[opening.x, markerHeight, opening.z]}
+              renderOrder={10}
+              userData={{ openingId: opening.id, openingKind: opening.kind, label: opening.label }}
+              onPointerDown={(event) => { event.stopPropagation(); onSelectOpening(opening.id) }}
+              onClick={(event) => { event.stopPropagation(); onSelectOpening(opening.id) }}
+            >
+              <sphereGeometry args={[markerRadius, 20, 14]} />
+              <meshBasicMaterial
+                color={selectedOpeningID === opening.id ? '#facc15' : isDoor ? '#f97316' : '#38bdf8'}
+                depthTest={false}
+                toneMapped={false}
+              />
+              <mesh>
+                <sphereGeometry args={[0.65, 16, 12]} />
+                <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+              </mesh>
+            </mesh>
+            <Html position={[opening.x, markerHeight, opening.z]} center>
+              <button
+                type="button"
+                data-testid={`three-opening-button-${opening.id}`}
+                aria-label={`3D 选择${isDoor ? '门' : '窗'} ${opening.id}`}
+                aria-pressed={selectedOpeningID === opening.id}
+                className="h-5 w-5 rounded-full border-2 border-white bg-slate-950/30 p-0 shadow-lg"
+                onClick={() => onSelectOpening(opening.id)}
+              />
+            </Html>
+          </group>
         )
       })}
     </>
@@ -482,6 +498,9 @@ export default function App() {
       Array.from(positions.array).every(Number.isFinite) &&
       Array.from(normals.array).every(Number.isFinite),
     )
+    const fingerprint = positions
+      ? Array.from(positions.array).reduce((total, value, index) => total + value * (index + 1), 0)
+      : 0
     window.__homevoxE2E = {
       generation: wasmGenerationRef.current,
       wasmCalls: wasmCallsRef.current,
@@ -490,6 +509,7 @@ export default function App() {
         positionCount: positions?.count ?? 0,
         normalCount: normals?.count ?? 0,
         finite,
+        fingerprint,
       },
       currentProjectId: currentProject?.id ?? null,
       selectedOpeningId: selectedOpeningID,
@@ -1521,7 +1541,7 @@ export default function App() {
         className="relative min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-slate-950 shadow-2xl"
         aria-label="3D 户型预览"
       >
-        <div className="absolute left-3 top-3 z-10 rounded-xl bg-black/60 px-3 py-2 text-xs text-white/75">
+        <div className="pointer-events-none absolute left-3 top-3 z-10 rounded-xl bg-black/60 px-3 py-2 text-xs text-white/75">
           <div className="font-medium text-white/90">3D 墙体 WASM Marching Cubes</div>
           <div className="mt-1 flex gap-3 text-[11px] text-white/60" aria-label="3D 白模实时指标">
             <span data-testid="wasm-engine-state">引擎 {wasmState}</span>
