@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+
+- 完成 Issue #17 的受控 Vision 合同闭环：生产 Go multipart parse API 以 OpenAI-compatible `/chat/completions` 多模态请求处理浏览器图片，并对空/非 JSON envelope、schema-invalid opening geometry、timeout、429 与 5xx fail-closed；上游错误正文不会回显给浏览器。
+- AI 解析不再把缺少 `wallId`、局部 `position` 或 `width` 的 opening 推断为已确认结构；这些候选直接拒绝，避免最近墙体或预览默认值污染 durable document。
+- AI canonical 输出现在要求完整且唯一的 JSON object：拒绝未知字段、重复键、缺失或部分嵌套字段、`null`、错误 JSON 类型、legacy opening 字段及尾随第二个 JSON 值；parse 路径不再生成 ID、kind、source 或空集合。
+- 生产浏览器验收通过仅存在于隔离 runner 的 restart control 显式 SIGTERM 并回收 Go server 子进程，再以相同 PostgreSQL/MinIO 状态启动新的 server process；重载断言 source-image 字节、canonical 墙体/门窗（含 wall-local 字段）和 WASM geometry fingerprint 保持一致。
+
+### Verification
+
+- Go fake-server contract tests 覆盖请求路径、Bearer header、model、multimodal data URL、非 JSON/empty/fenced response、429、5xx 和 timeout。真实 Provider smoke 仅允许在运行时凭据存在时本地 opt-in；未执行、不会写入 CI、日志或公开构件。
+- 未创建 Release、未部署。
+
 - 完成 Issue #13：将 Rust/wasm-bindgen Marching Cubes 通过可复现 `wasm-pack --target web` 构建、受限 TypeScript adapter 和 R3F `BufferGeometry` 生命周期接入真实浏览器墙体渲染链路。
 - 增加 17³ 标量场、有限数值/资源/50ms 主线程预算验证、过期异步结果保护，以及 WASM 失败时互斥的 wall-shell fallback 和可观察运行指标。
 - 固定 Rust `1.96.1`、`wasm32-unknown-unknown` 与 `wasm-pack 0.13.1` bootstrap；新增 production Playwright 验收和 Go `.wasm` GET/HEAD MIME 回归，覆盖真实 `.wasm`、有限几何、拖拽/Undo/Redo、PNG 下载与 reload 重建。

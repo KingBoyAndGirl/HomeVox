@@ -33,7 +33,8 @@ HomeVox 采用混合技术路线：**Go 管业务 API，Rust 管体素/几何核
 - ✅ 户型图上传与 OpenAI-compatible AI 解析接口已落地；正向解析运行需要配置 `AI_API_KEY`、`AI_BASE_URL`、`AI_MODEL`
 - ✅ 2D 户型校正编辑器支持墙体选择、共享端点拖拽、Undo/Redo 与底图显隐
 - ✅ Issue #13：生产前端构建会从 `wasm/` 源码执行 `wasm-pack build --target web`，由受控 17³（4,913 voxel）标量场调用 Rust Marching Cubes，并在 R3F 中显示有限 position/normal 的真实 WASM 网格。
-- ✅ 门窗以真实坐标生成橙色/蓝色定位 marker；当前尚未进行布尔开洞，墙高与墙厚为 v1 展示常量而非建筑实测尺寸
+- ✅ Issue #17：浏览器上传链路的 AI 结果现在经受控 OpenAI-compatible Vision HTTP 合同和严格 canonical schema validation；未知字段、重复键、缺失/部分字段、null、错误类型和尾随 JSON 都会失败关闭，且不会补齐 AI 输出中的 ID、kind、source 或集合。
+- ✅ 门窗 opening 由 wall-local `wallId`、`position`、`width` 与 `confirmed` 驱动真实 2D/3D 开洞；未确认的门高、窗高和窗台高仅为非持久化预览，绝不表述为建筑实测参数。
 - ✅ WebGL 不可用时显示明确降级提示，不再留下空黑 3D 视口
 - ✅ Issue #9：为当前可用 2D/3D 视图提供一次点击一次下载的 PNG 导出，支持空白/尺寸/序列化等失败闭环；3D 导出通过 R3F 渲染器即时渲染后抓取并规避对象 URL 过早回收
 - ✅ Rust/WASM 几何核心已加入 Marching Cubes 功能验证
@@ -54,7 +55,7 @@ npm --prefix frontend test
 npm --prefix frontend run test:e2e
 ```
 
-若 `rustup` 未找到，请先按 Rust 官方安装器安装并重新打开 shell；若 target 缺失，重新执行 `scripts/bootstrap-wasm.sh`。浏览器验收会启动隔离 PostgreSQL + MinIO，同网络内以 production Go server 保存并重新加载 fixture 项目。
+若 `rustup` 未找到，请先按 Rust 官方安装器安装并重新打开 shell；若 target 缺失，重新执行 `scripts/bootstrap-wasm.sh`。浏览器验收会启动隔离 PostgreSQL + MinIO，同网络内以 production Go server 保存项目，显式终止该 Go 进程并启动新的进程后再重新加载。
 
 构建会生成忽略的 `wasm/pkg/` bindings 与 `frontend/dist/`；不要提交它们。生产浏览器验收由 Go 在 `0.0.0.0:18088` 提供 production assets，加载实际 `.wasm`（`application/wasm`），并使用受控 17³ fixture 验证 Rust 调用、有限几何、拖拽/Undo/Redo、3D PNG 下载及 reload 后重建。Playwright 首次使用前执行 `npm --prefix frontend exec playwright install chromium`。
 

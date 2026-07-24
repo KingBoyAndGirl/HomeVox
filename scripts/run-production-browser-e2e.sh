@@ -57,6 +57,8 @@ npm --prefix "$ROOT/frontend" run build
 (
   cd "$ROOT/backend"
   CGO_ENABLED=0 go build -o "$OUT/homevox-server" ./cmd/server
+  CGO_ENABLED=0 go build -o "$OUT/fake-vision" ./cmd/fake-vision
+  CGO_ENABLED=0 go build -o "$OUT/e2e-restart-control" ./cmd/e2e-restart-control
 )
 
 docker network create "$NET" >/dev/null
@@ -79,9 +81,12 @@ echo minio_bucket_ready=PASS
 
 docker exec "$RUN" mkdir -p /app/frontend
 docker cp "$OUT/homevox-server" "$RUN":/app/homevox-server
+docker cp "$OUT/fake-vision" "$RUN":/app/fake-vision
+docker cp "$OUT/e2e-restart-control" "$RUN":/app/e2e-restart-control
 docker cp "$ROOT/frontend/dist/." "$RUN":/app/frontend/
-docker exec "$RUN" chmod 755 /app/homevox-server
-docker exec "$RUN" sh -c "DATABASE_URL='postgres://homevox:e2e_local_only@$PG:5432/homevox?sslmode=disable' S3_ENDPOINT='http://$MINIO:9000' S3_BUCKET=homevox S3_ACCESS_KEY_ID=homevox_e2e S3_SECRET_ACCESS_KEY=e2e_local_only_secret HOMEVOX_FRONTEND_DIR=/app/frontend /app/homevox-server >/app/server.log 2>&1 & echo \$! >/app/server.pid"
+docker exec "$RUN" chmod 755 /app/homevox-server /app/fake-vision /app/e2e-restart-control
+docker exec "$RUN" sh -c "/app/fake-vision >/app/fake-vision.log 2>&1 & echo \$! >/app/fake-vision.pid"
+docker exec "$RUN" sh -c "DATABASE_URL='postgres://homevox:e2e_local_only@$PG:5432/homevox?sslmode=disable' S3_ENDPOINT='http://$MINIO:9000' S3_BUCKET=homevox S3_ACCESS_KEY_ID=homevox_e2e S3_SECRET_ACCESS_KEY=e2e_local_only_secret AI_BASE_URL='http://127.0.0.1:18089/v1' AI_API_KEY=e2e-fake-key AI_MODEL=e2e-fake-vision HOMEVOX_FRONTEND_DIR=/app/frontend /app/e2e-restart-control /app/homevox-server /app/server.pid >/app/restart-control.log 2>&1 & echo \$! >/app/restart-control.pid"
 
 listening() {
   docker exec "$RUN" sh -c 'for f in /proc/net/tcp /proc/net/tcp6; do while read sl local remote state rest; do case "$local:$state" in *:46A8:0A) exit 0;; esac; done < "$f"; done; exit 1'
@@ -95,7 +100,7 @@ echo server_listen_0.0.0.0_18088=PASS
 
 # The browser is network-isolated with the server; source, dependencies and assets
 # are copied rather than bind-mounted so this works against a remote Docker daemon.
-docker create --name "$BROWSER" --network "$NET" -e "HOMEVOX_E2E_BASE_URL=http://$RUN:18088" -w /work/frontend mcr.microsoft.com/playwright:v1.61.1-noble bash -lc 'npx playwright test --config playwright.config.ts' >/dev/null
+docker create --name "$BROWSER" --network "$NET" -e "HOMEVOX_E2E_BASE_URL=http://$RUN:18088" -e "HOMEVOX_E2E_RESTART_URL=http://$RUN:18090/restart" -w /work/frontend mcr.microsoft.com/playwright:v1.61.1-noble bash -lc 'npx playwright test --config playwright.config.ts' >/dev/null
 docker cp "$ROOT/frontend/." "$BROWSER":/work/frontend/
 docker start -a "$BROWSER"
 echo production_browser_persistence_e2e=PASS exact_head=$(git -C "$ROOT" rev-parse HEAD) network=$NET
