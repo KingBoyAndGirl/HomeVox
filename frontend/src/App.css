@@ -55,6 +55,10 @@
   min-height: 0;
 }
 
+.product-workspace-linked {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 300px;
+}
+
 .workspace-card {
   border: 1px solid #e1e7f2;
   border-radius: 16px;
@@ -112,6 +116,10 @@
   }
 
   .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .product-workspace-linked {
     grid-template-columns: 1fr;
   }
 }

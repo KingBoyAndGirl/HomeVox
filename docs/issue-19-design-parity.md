@@ -1,21 +1,18 @@
 # Issue #19 design–implementation parity
 
-Frozen design evidence: Issue #19 comment `5068143912`, 1440 × 960 representative states.
-This implementation intentionally uses a controlled fixture only for automated evidence; no user floorplan is stored in this repository.
+Frozen-design evidence: Issue #19 comment `5068143912`; production evidence uses a fixed 1440 × 960 viewport. The controlled fixture exists only for automated evidence and does not store a user floorplan.
 
-| Frozen state | Implementation evidence | Deliberate difference and reason |
-| --- | --- | --- |
-| 导入 / AI 识别 | Step 1/2 sidebar, browser file picker, image facts, `开始 AI 识别`, loading/error/retry backed by `POST /api/floorplans/parse` | Uses native file input for keyboard and screen-reader support. |
-| 校正可编辑 2D | Step 3, original-image overlay, stable wall/opening controls, shared Undo/Redo, Inspector | “补画墙体”和“对象确认” are absent: no verified canonical contract exists. |
-| 生成可编辑 3D | Step 4, real R3F/WASM panel and same-document statement | Wall height remains an explicit preview; geometry engine telemetry is test-only, not ordinary UI. |
-| 2D / 3D 联动 | Step 5, equal workspace panels, shared selection and one Undo/Redo history | The responsive implementation stacks panels below 1024px for usable zoom and focus order. |
-| 保存项目 | Step 6 and Inspector project card use verified create/update/load endpoints | Manual save is shown instead of automatic save because autosave/conflict semantics have no accepted contract. |
+| State | Layout and visual parity | Product semantics | Exact-head evidence / justified difference |
+| --- | --- | --- | --- |
+| 导入 / AI 识别 | Indigo left step rail, white top bar, single centered upload/recognition card, violet primary CTA and muted state card. | Step 1 accepts an image; Step 2 alone starts parsing, shows loading/error/retry, and does not reveal editor tools. | `issue-19-import-ai.png`. Native file input is retained for keyboard and screen-reader support. |
+| 校正 2D | Main 2D canvas card with a separate light inspector card; selected wall is amber, endpoints/openings retain high-contrast semantic colors. | Only canonical parsed data unlocks this page. Wall selection, opening editing, undo/redo and stable wall/opening context are available here. | `issue-19-2d-correction.png`. No “补画墙体” or object-confirmation claim is shown because no verified canonical contract exists. |
+| 3D 确认 | Dedicated dark real R3F/WASM preview, compact confirmation header, violet confirm CTA and neutral return CTA. | This page is distinct from the linked workspace. “返回 2D 校正” changes no data; “完成并打开 3D” enters the linked workspace. | `issue-19-3d-confirm.png`. Height and unverified building attributes remain explicitly described as illustrative/unknown. |
+| 2D / 3D 联动 | Equal dark/light workspace panels plus inspector; responsive layout stacks below 1024px while preserving reading and focus order. | 2D and 3D use the same canonical document and stable `wallId`; inspector shows the selected wall/opening ID and opening ownership. | `issue-19-linked-workspace.png`. On smaller screens stacking is an intentional accessibility difference. |
+
+## Diagnostic and unknown-content policy
+
+Raw canonical JSON and engineering telemetry (WASM, grid dimensions, triangle counts, timings and fallback labels) are absent from the ordinary DOM and accessibility tree. Actual invalid-geometry and unavailable-3D states remain fail-closed, actionable user messages. Unknown door/window dimensions are described as non-persistent previews rather than invented building facts.
 
 ## Exact-head evidence command
 
-Run `npm --prefix frontend run test:e2e` on the PR head. The production Playwright
-suite uses a fixed 1440 × 960 viewport and captures `issue-19-import-ai.png`,
-`issue-19-2d-correction.png`, `issue-19-3d-confirm.png`, and
-`issue-19-linked-workspace.png` as test artifacts. It also verifies keyboard-visible
-native controls, ARIA labels, retry, invalid geometry, WebGL/WASM fallback, and the
-same canonical project across save/reload.
+Run `npm --prefix frontend run test:e2e` on the PR exact head. The production Playwright suite captures the four named PNG artifacts and verifies six-step routing, the standalone 3D confirmation, stable wall/opening context, diagnostic isolation, and invalid-geometry fail-closed behavior.
